@@ -269,6 +269,69 @@ else:
     print(f'  Checkpoint saved → {CKPT_1MIN.name}')
 
 # %% [markdown]
+# ### Stage B2: Hierarchical Fix (Aggregate >= WM)
+#
+# Must run BEFORE gap classification so SARIMA trains on violation-free anchor points.
+# Corrupted anchors (Aggregate < WM) would cause SARIMA to forecast a systematically
+# low aggregate, propagating the error into every imputed gap minute.
+#
+# House 1 WM channel: Appliance5
+# Invariant: Aggregate >= Appliance5 at every 1-min bin.
+
+# %%
+WM_COL_H1 = 'Appliance5'   # House 1 washing machine channel
+
+def _fix_h1_violations(df: pd.DataFrame, wm_col: str = WM_COL_H1,
+                       agg_col: str = 'Aggregate',
+                       window: int = 3, max_iter: int = 20) -> pd.DataFrame:
+    """
+    Iteratively fix 1-min bins where Aggregate < WM (physically impossible).
+    Identifies the culprit column (highest deviation from its ±window-min local
+    median), replaces it with the median of the next `window` mins or bfills.
+    Operates on the full single-house DataFrame — no cross-house risk here.
+    """
+    df = df.copy()
+    cols = [wm_col, agg_col]
+    n_initial = int((df[agg_col].fillna(0) < df[wm_col].fillna(0)).sum())
+    if n_initial == 0:
+        print(f'B2 Hierarchical fix: 0 violations — skipped')
+        return df
+
+    arr = df.reset_index()
+    for _ in range(max_iter):
+        viol = np.where(
+            (arr[agg_col].fillna(0) < arr[wm_col].fillna(0)).values
+        )[0]
+        if len(viol) == 0:
+            break
+        for pos in viol:
+            lo = max(0, pos - window)
+            hi = min(len(arr), pos + window + 1)
+            deviations = {}
+            for col in cols:
+                vals = arr[col].iloc[lo:hi].values.astype(float)
+                med  = np.nanmedian(vals)
+                deviations[col] = abs(float(arr[col].iloc[pos]) - med)
+            culprit = max(deviations, key=deviations.get)
+            nxt = arr[culprit].iloc[pos + 1: pos + window + 1].values.astype(float)
+            nxt = nxt[np.isfinite(nxt)]
+            if len(nxt):
+                repl = float(np.median(nxt))
+            else:
+                prv = arr[culprit].iloc[max(0, pos - window): pos].values.astype(float)
+                prv = prv[np.isfinite(prv)]
+                repl = float(np.median(prv)) if len(prv) else 0.0
+            arr.at[pos, culprit] = max(0.0, repl)
+
+    idx_col = df.index.name or 'Time'
+    arr = arr.set_index(idx_col) if idx_col in arr.columns else arr.set_index('Time')
+    n_after = int((arr[agg_col].fillna(0) < arr[wm_col].fillna(0)).sum())
+    print(f'B2 Hierarchical fix: {n_initial:,} violations → {n_after} remaining')
+    return arr
+
+df_1min = _fix_h1_violations(df_1min)
+
+# %% [markdown]
 # ### Stage C: Gap Classification
 
 # %%
@@ -364,11 +427,16 @@ else:
     agg_imputed = df_1min['Aggregate'].copy()
     n_sarima_filled = 0
 
-    # R5b: Linear interpolation for 5–30 min gaps on aggregate (indistinguishable from SARIMA at this scale)
-    for start, end, length_min in lin_med_gaps:
-        gap_range = pd.date_range(start=start, end=end, freq='1min').intersection(df_1min.index)
-        agg_imputed.loc[gap_range] = agg_imputed.loc[gap_range].interpolate(method='linear')
-        df_1min.loc[gap_range, 'impute_source'] = 'linear_med'
+    # R5b: Linear interpolation for 5–30 min gaps on aggregate.
+    # Must interpolate the full series (not a sub-slice) so anchor points on either
+    # side of the gap are included — an all-NaN sub-slice has no anchors to interpolate between.
+    if lin_med_gaps:
+        agg_imputed = agg_imputed.interpolate(method='linear',
+                                               limit=SARIMA_MIN_GAP - 1,
+                                               limit_area='inside')
+        for start, end, length_min in lin_med_gaps:
+            gap_range = pd.date_range(start=start, end=end, freq='1min').intersection(df_1min.index)
+            df_1min.loc[gap_range, 'impute_source'] = 'linear_med'
     print(f'R5b Linear (5–30 min gaps): {len(lin_med_gaps)} gaps filled')
 
     # R6: SARIMA imputation for gaps ≥ 30 min only (daily seasonality matters here)

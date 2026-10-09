@@ -87,6 +87,113 @@ else:
     wm_all.to_parquet(CKPT_WM)
     print(f'\nSaved: {CKPT_WM}  |  shape: {wm_all.shape}')
 
+# ── Hierarchical data quality fix ─────────────────────────────────────────────
+# Invariant: Aggregate >= WM at every timestep (WM is a sub-meter of Aggregate).
+# When violated: a measurement error exists in one of the two channels.
+# Strategy: for each violation, find the culprit column (highest deviation from
+# its ±3-min local median), replace with median of next 3 mins (or bfill).
+# Iterate per house until invariant holds. Then derive Other = Aggregate - WM
+# to represent unmeasured background load (lights, fridge, EV, etc.).
+# If Other is extreme at isolated timesteps the aggregate itself is anomalous —
+# apply the same fix to Aggregate and recompute Other.
+
+CKPT_WM_CLEAN = CKPT_DIR / 'ckpt_wm_1min_clean.parquet'
+
+def _fix_violations(df_h: pd.DataFrame, known_cols: list,
+                    agg_col: str = 'Aggregate',
+                    window: int = 3, max_iter: int = 20):
+    df = df_h.copy().reset_index()
+    cols = known_cols + [agg_col]
+    total_fixed = 0
+    for _ in range(max_iter):
+        known_sum = df[known_cols].sum(axis=1)
+        viol = np.where((df[agg_col] < known_sum).values)[0]
+        if len(viol) == 0:
+            break
+        for pos in viol:
+            lo, hi = max(0, pos - window), min(len(df), pos + window + 1)
+            deviations = {}
+            for col in cols:
+                med = np.nanmedian(df[col].iloc[lo:hi].values)
+                deviations[col] = abs(float(df[col].iloc[pos]) - med)
+            culprit = max(deviations, key=deviations.get)
+            nxt = df[culprit].iloc[pos + 1: pos + window + 1].values
+            nxt = nxt[np.isfinite(nxt)]
+            if len(nxt):
+                repl = float(np.median(nxt))
+            else:
+                prv = df[culprit].iloc[max(0, pos - window): pos].values
+                prv = prv[np.isfinite(prv)]
+                repl = float(np.median(prv)) if len(prv) else 0.0
+            df.at[pos, culprit] = max(0.0, repl)
+        total_fixed += len(viol)
+        if len(viol) < 5:   # converged — remaining violations are stubborn outliers
+            break
+    idx_col = df_h.index.name or 'index'
+    df = df.set_index(idx_col) if idx_col in df.columns else df.set_index('Time')
+    return df, total_fixed
+
+if CKPT_WM_CLEAN.exists() and not FORCE_RERUN:
+    print(f'Loading clean checkpoint: {CKPT_WM_CLEAN}')
+    wm_all = pd.read_parquet(CKPT_WM_CLEAN)
+else:
+    known_cols = ['WM']
+    # Pre-fill NaN so comparisons don't silently skip violation rows (matches pod behaviour)
+    wm_all[known_cols]   = wm_all[known_cols].fillna(0).clip(lower=0)
+    wm_all['Aggregate']  = wm_all['Aggregate'].fillna(0).clip(lower=0)
+    known_sum  = wm_all[known_cols].sum(axis=1)
+    n_before   = (wm_all['Aggregate'] < known_sum).sum()
+    print(f'\nHierarchical fix — violations before: {n_before:,}')
+
+    # Compute p99 of Other on uncleaned data to set the aggregate-anomaly threshold
+    _other_raw = (wm_all['Aggregate'] - wm_all[known_cols].sum(axis=1)).clip(lower=0.0)
+    p99 = float(_other_raw.quantile(0.99))
+
+    cleaned = []
+    n_agg_anom_total = 0
+    for h, grp in wm_all.groupby('house'):
+        grp_fixed, n_fixed = _fix_violations(grp, known_cols)
+        if n_fixed:
+            print(f'  H{h:2d}: corrected {n_fixed:,} violation(s)')
+
+        # Derive Other per house (post-violation fix)
+        grp_fixed['Other'] = (grp_fixed['Aggregate'] - grp_fixed[known_cols].sum(axis=1)).clip(lower=0.0)
+
+        # Fix aggregate anomalies within this house only (never cross house boundaries)
+        agg_anom_h = grp_fixed['Other'] > p99 * 3
+        if agg_anom_h.sum():
+            n_agg_anom_total += int(agg_anom_h.sum())
+            grp_reset = grp_fixed.reset_index()
+            for pos in np.where(agg_anom_h.values)[0]:
+                nxt = grp_reset['Aggregate'].iloc[pos+1:pos+4].values
+                nxt = nxt[np.isfinite(nxt)]
+                if len(nxt):
+                    repl = float(np.median(nxt))
+                else:
+                    prv = grp_reset['Aggregate'].iloc[max(0, pos-3):pos].values
+                    prv = prv[np.isfinite(prv)]
+                    repl = float(np.median(prv)) if len(prv) else 0.0
+                grp_reset.at[pos, 'Aggregate'] = max(0.0, repl)
+            idx_col = grp_fixed.index.name or 'Time'
+            grp_fixed = grp_reset.set_index(idx_col)
+            grp_fixed['Other'] = (grp_fixed['Aggregate'] - grp_fixed[known_cols].sum(axis=1)).clip(lower=0.0)
+
+        cleaned.append(grp_fixed)
+
+    if n_agg_anom_total:
+        print(f'  Aggregate anomalies (Other>{p99*3:.0f}W): {n_agg_anom_total:,} fixed (per-house)')
+
+    wm_all = pd.concat(cleaned).sort_index()
+
+    n_after = (wm_all['Aggregate'] < wm_all['WM']).sum()
+    print(f'  Violations after fix: {n_after}')
+    print(f'  Other load — mean: {wm_all["Other"].mean():.0f}W  '
+          f'median: {wm_all["Other"].median():.0f}W  '
+          f'p95: {wm_all["Other"].quantile(0.95):.0f}W')
+
+    wm_all.to_parquet(CKPT_WM_CLEAN)
+    print(f'  Saved: {CKPT_WM_CLEAN}  |  columns: {wm_all.columns.tolist()}')
+
 # ── Coverage summary ──────────────────────────────────────────────────────────
 print('\n=== Coverage Summary ===')
 print(f'{"House":>6}  {"WM col":>12}  {"Start":>12}  {"End":>12}  {"Days":>6}  {"WM col"}')

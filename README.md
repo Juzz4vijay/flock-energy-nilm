@@ -19,8 +19,8 @@ Four sections, one coherent pipeline:
 
 | Section | Scope | Key output |
 |---|---|---|
-| 1 — Data Cleaning | House 1, 8-sec → 1-min, 7 cleaning rules | `house1_clean_1min.parquet` |
-| 2 — WM EDA | All 19 households, cycle detection | behavioral signatures, hot-wash analysis |
+| 1 — Data Cleaning | House 1, 8-sec → 1-min, 8 cleaning rules + Stage B2 hierarchical fix | `house1_clean_1min.parquet` |
+| 2 — WM EDA | All 19 households, hierarchical fix + cycle detection | behavioral signatures, 6,776 cycles, 87.4% hot washes |
 | 3 — ARNILM | Autoregressive LSTM, cross-house LOHO | F1=0.64, MAE=8W, σ uncertainty |
 | 4 — Practical | Hot-wash intervention, resolution impact | £26/yr saving, deployment limits |
 
@@ -95,12 +95,14 @@ all heads — aggregate = Σ appliances, by construction.
 flowchart LR
     subgraph S1["① Data Cleaning"]
         RAW["Raw REFIT\n8-sec · 19 houses\nPart1: zeros=missing\nPart2: NaN=missing"]
-        CLEAN["Cleaned 1-min\n• zero-masking\n• gap classify\n• interp ≤30min\n• SARIMA ≤24h\n• outage flag"]
-        RAW --> CLEAN
+        B2["Stage B2\nHierarchical fix\nAggregate ≥ WM\nbefore gap fill"]
+        SARIMA["Gap fill\ninterp ≤30min\nSARIMA ≤24h\noutage flag"]
+        CLEAN["ckpt_wm_1min_clean\n14.96M rows · 5 cols\n+Other column"]
+        RAW --> B2 --> SARIMA --> CLEAN
     end
 
     subgraph S2["② Cycle Detection & EDA"]
-        EVT["Event Detector\n80W threshold\n5min hysteresis\n15–180min window"]
+        EVT["Event Detector\ndynamic thresholds\n5min hysteresis\n15–180min window"]
         CYC["Cycle Features\nduration · energy\npeak · hot_wash"]
         SIG["House Signature\n7 features\ndur · energy · hot_frac\nph_sin/cos · peak · hot²"]
         EVT --> CYC --> SIG
@@ -162,23 +164,23 @@ stateDiagram-v2
 
     [*] --> IDLE
 
-    IDLE --> ACTIVE      : agg[t] ≥ 80 W\nrecord ev_start = t
+    IDLE --> ACTIVE      : agg[t] ≥ THRESH_ON (per-house p20)\nrecord ev_start = t
 
-    ACTIVE --> ACTIVE    : agg[t] ≥ 25 W\naccumulate energy\nupdate peak_W
+    ACTIVE --> ACTIVE    : agg[t] ≥ THRESH_OFF\naccumulate energy\nupdate peak_W
 
-    ACTIVE --> COOLING   : agg[t] < 25 W\nrecord drop_start = t
+    ACTIVE --> COOLING   : agg[t] < THRESH_OFF\nrecord drop_start = t
 
-    COOLING --> ACTIVE   : agg[t] ≥ 25 W\n(false drop — still in cycle)
+    COOLING --> ACTIVE   : agg[t] ≥ THRESH_OFF\n(false drop — still in cycle)
 
-    COOLING --> COOLING  : agg[t] < 25 W\ndrop sustained < 5 min
+    COOLING --> COOLING  : agg[t] < THRESH_OFF\ndrop sustained < 5 min
 
     COOLING --> CHECK    : drop sustained ≥ 5 min\nev_end = drop_start\ndur = ev_end − ev_start
 
     CHECK --> EMIT       : 15 min ≤ dur ≤ 180 min\n(valid WM cycle window)
     CHECK --> IDLE       : dur < 15 min or dur > 180 min\n(discard — not a WM cycle)
 
-    EMIT --> HOT         : energy ≥ 0.35 kWh\nhot_wash = True
-    EMIT --> COLD        : energy < 0.35 kWh\nhot_wash = False
+    EMIT --> HOT         : any bin ≥ 1,800 W\nhot_wash = True
+    EMIT --> COLD        : no bin ≥ 1,800 W\nhot_wash = False
 
     HOT --> IDLE         : emit cycle record\n{start, end, energy_Wh,\npeak_W, hot_wash=True}
     COLD --> IDLE        : emit cycle record\n{start, end, energy_Wh,\npeak_W, hot_wash=False}
@@ -188,22 +190,23 @@ stateDiagram-v2
 
 | Parameter | Value | Rationale |
 |---|---|---|
-| THRESH_ON | 80 W | Above background noise; below smallest WM draw |
-| THRESH_OFF | 25 W | Below agitation phase minimum |
+| THRESH_ON | p20 of non-zero WM readings (min 60 W) | Per-house dynamic — adapts to each appliance's idle draw |
+| THRESH_OFF | p05 × 0.6 (min 25 W) | Per-house lower bound with hysteresis margin |
 | HYST_MIN | 5 min | Drain/spin oscillations last < 3 min — hysteresis absorbs them |
 | DUR_MIN | 15 min | Shortest UK quick-wash programme (2013–2015 market) |
 | DUR_MAX | 180 min | Longest UK cotton programme |
-| HOT_THRESH | 0.35 kWh | Midpoint between 30°C (~0.25 kWh) and 60°C (~1.1 kWh) |
+| HOT_THRESH | any bin ≥ 1,800 W | Heating element signature; unambiguous at 1-min resolution |
 
 **Why hysteresis is critical**: the drain-and-spin phase oscillates rapidly between
 200 W agitation and brief stops. Without the 5-minute sustained drop requirement,
 one 90-minute cycle fragments into 4–8 spurious short events — corrupting cycle
 duration, energy, and the hot-wash fraction that feeds the house signature.
 
-**Why energy classifies wash temperature**: at 1-minute resolution, the heating
-phase's thermal cycling pattern is averaged out. But total cycle energy survives —
-a 60°C cycle draws ~1.1 kWh versus ~0.25 kWh at 30°C, a 4× gap that is reliably
-detectable even at coarse resolution.
+**Why a peak-power threshold classifies wash temperature**: the heating element
+(1,800–2,200 W) is unambiguous at 1-min resolution even after mean aggregation.
+A cold wash (30°C) never exceeds ~600 W peak; a hot wash always shows at least one
+bin ≥ 1,800 W. This is more robust than total energy, which overlaps for short
+hot and long cold programmes.
 
 ---
 
@@ -215,8 +218,10 @@ Before/after view of House 1 after gap imputation and Part 1 zero-masking:
 
 ![Section 1 — before/after cleaning](figures/C1_before_after_week.png)
 
-Key decisions: 7 cleaning rules, SARIMA(2,1,2)(1,1,1,1440) for gaps 30 min–24 h,
-outage exclusion for gaps > 24 h. Full details in [DATA.md](DATA.md).
+Key decisions: 8 cleaning rules, **Stage B2 hierarchical fix** (`Aggregate ≥ WM` enforced
+per-house before gap filling — 11,124 violations fixed across 19 houses),
+SARIMA(2,1,2)(1,1,1,1440) for gaps 30 min–24 h, outage exclusion for gaps > 24 h.
+Full details in [DATA.md](DATA.md).
 
 ---
 
@@ -227,8 +232,10 @@ Cross-house usage patterns across all 19 households:
 ![Section 2 — cross-house comparison](figures/S2_4_cross_house_comparison.png)
 
 Key finding: hot-wash fraction ranges from 9% (H19) to 99% (H7/H8/H16). Median
-cycle energy varies 3× across households. This diversity is what makes cross-house
-generalisation hard and motivates the house behavioral signature.
+cycle energy varies 3.6× (242 Wh to 883 Wh). 6,776 cycles across 19 houses —
+87.4% hot washes, median 66 min / 502 Wh — from hierarchically-fixed clean data
+(`Aggregate ≥ WM` enforced, `Other` column derived). This diversity motivates the
+7-feature house behavioral signature.
 
 ---
 
