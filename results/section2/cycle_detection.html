@@ -1,0 +1,136 @@
+<title>Section 2 Cycle Detection</title>
+<style>
+  :root {
+    --bg:#f7f8fa;--card:#fff;--fg:#1a1d23;--fg-muted:#5c6370;
+    --border:#e2e6ed;--accent:#2b7be0;--ok:#2eaa6a;--warn:#e05a2b;
+    font-family:'Inter',system-ui,sans-serif;color-scheme:light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){--bg:#13151a;--card:#1e2128;--fg:#e8eaf0;--fg-muted:#8b92a5;--border:#2e3240;color-scheme:dark;}
+  }
+  :root[data-theme="dark"]{--bg:#13151a;--card:#1e2128;--fg:#e8eaf0;--fg-muted:#8b92a5;--border:#2e3240;color-scheme:dark;}
+  body{background:var(--bg);color:var(--fg);margin:0;padding:24px 16px;max-width:900px;margin-inline:auto;}
+  h1{font-size:1.2rem;font-weight:800;margin:0 0 2px;}
+  .sub{color:var(--fg-muted);font-size:.82rem;margin-bottom:22px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:18px;}
+  .label{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-muted);margin-bottom:12px;}
+  .mermaid{font-size:13px;}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+  .st{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:9px 13px;flex:1;min-width:110px;}
+  .sv{font-size:1.2rem;font-weight:800;}.sl{font-size:.72rem;color:var(--fg-muted);}
+  .blue{color:#2b7be0;}.green{color:#2eaa6a;}.orange{color:#e05a2b;}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: { fontSize: '13px' } });</script>
+
+<h1>Section 2 — WM Cycle Detection Algorithm</h1>
+<p class="sub">19 households · Official CLEAN REFIT data · Dynamic per-house thresholds + hysteresis</p>
+
+<div class="card">
+  <div class="label">Why fixed thresholds fail — the drain phase problem</div>
+  <pre class="mermaid">
+sequenceDiagram
+    participant WM as WM Power
+    participant A1 as Fixed 100W algo
+    participant A2 as Hysteresis algo
+
+    Note over WM: Heating phase (0–20 min)
+    WM->>A1: 1800–2500 W ✓ ON
+    WM->>A2: 1800–2500 W ✓ ON
+
+    Note over WM: Agitation (20–40 min)
+    WM->>A1: 200–400 W ✓ ON
+    WM->>A2: 200–400 W ✓ ON
+
+    Note over WM: Drain pump (40–43 min)
+    WM->>A1: 50–80 W ✗ EXITS — cycle ends at 40 min!
+    WM->>A2: 50–80 W ✓ STAYS — above off_thresh
+
+    Note over WM: Rinse + Spin (43–75 min)
+    WM->>A1: 200–400 W NEW cycle starts
+    WM->>A2: 200–400 W ✓ same cycle continues
+
+    Note over WM: Machine off (75+ min)
+    WM->>A1: 0 W — OFF
+    WM->>A2: 0 W — 5-min patience → EXIT at 75 min ✓
+  </pre>
+</div>
+
+<div class="card">
+  <div class="label">Dynamic threshold derivation — per house, from data</div>
+  <pre class="mermaid">
+flowchart TD
+    A([WM power series\nall 1-min readings]) --> B[Filter: keep readings > 5 W\nremove true-off zeros]
+    B --> C[Compute percentiles\nof active distribution]
+    C --> D[p05 = 5th percentile\ntypically drain pump level\n50–80 W]
+    C --> E[p20 = 20th percentile\nminimum agitation level\n100–200 W]
+    D --> F[OFF threshold\n= max p05 × 0.6 , 25W\nround to 5 W]
+    E --> G[ON threshold\n= max p20 rounded to 10W , 60W]
+    F --> H{Enough data?\n≥ 200 active readings}
+    G --> H
+    H -->|No| I[Fallback\nON = 100 W\nOFF = 50 W]
+    H -->|Yes| J([House-specific\nON thresh + OFF thresh])
+    I --> J
+
+    style A fill:#ddeeff,stroke:#2b7be0,color:#0a2a5e
+    style J fill:#dff5ec,stroke:#2eaa6a,color:#0d3d23
+    style I fill:#fff3e0,stroke:#e05a2b,color:#7a2a00
+  </pre>
+</div>
+
+<div class="card">
+  <div class="label">Hysteresis state machine — full cycle detection logic</div>
+  <pre class="mermaid">
+stateDiagram-v2
+    [*] --> IDLE
+    IDLE --> CONFIRMING : any reading ≥ on_thresh
+    CONFIRMING --> IDLE : streak broken\nbefore 3 min
+    CONFIRMING --> ACTIVE : on_thresh sustained\nfor ≥ 3 consecutive min\n→ cycle START recorded
+
+    ACTIVE --> ACTIVE : power ≥ off_thresh\n(including drain pump ~50–80W)
+    ACTIVE --> DRAINING : power < off_thresh\nlow_streak counter starts
+
+    DRAINING --> ACTIVE : power returns ≥ off_thresh\nbefore 5-min patience\nlow_streak reset
+
+    DRAINING --> VALIDATE : power < off_thresh\nfor 5 consecutive min\n→ cycle END recorded
+
+    VALIDATE --> CYCLE_OK : 15 min ≤ duration ≤ 180 min
+    VALIDATE --> DISCARD : duration outside bounds\n< 15 min or > 180 min
+
+    CYCLE_OK --> IDLE : record cycle\nextract energy · peak · heat_mins
+    DISCARD --> IDLE
+  </pre>
+</div>
+
+<div class="card">
+  <div class="label">Cycle classification — hot vs cold wash</div>
+  <pre class="mermaid">
+flowchart LR
+    A([Detected cycle]) --> B{Any 1-min bin\n≥ 1 800 W\nfor ≥ 3 min?}
+    B -->|Yes| C[HOT WASH\nheating element active\n40–60°C programme]
+    B -->|No| D[COLD / WARM WASH\nmotor only · no heating\nor 30°C programme]
+
+    C --> E[Extract\nheat_mins · heat_energy_wh\nhot_wash = True]
+    D --> F[Extract\nhot_wash = False]
+
+    E --> G[Energy saving =\nhot_median − cold_median\nper house]
+    F --> G
+
+    style C fill:#fde8e0,stroke:#e05a2b,color:#7a2a00
+    style D fill:#ddeeff,stroke:#2b7be0,color:#0a2a5e
+    style G fill:#dff5ec,stroke:#2eaa6a,color:#0d3d23
+  </pre>
+</div>
+
+<div class="card">
+  <div class="label">Threshold rationale — grounded in 2013–2015 UK market</div>
+  <pre class="mermaid">
+flowchart LR
+    R1[Min cycle 15 min] --> E1[Shortest quick-wash sold\nin UK 2013–2015\nBosch SpeedPerfect\nCandy · Samsung]
+    R2[Max cycle 180 min] --> E2[No domestic programme\nexceeds 3 hours]
+    R3[Heat threshold 1 800 W] --> E3[UK front-loader heating element\nrated 1.8–2.5 kW\nbelow = motor only]
+    R4[ON streak 3 min] --> E4[Avoids spike noise\ntriggering a cycle\n1–2 min transients ignored]
+    R5[OFF patience 5 min] --> E5[Bridges drain phase\ntypically 2–4 min\n5 min gives safety margin]
+  </pre>
+</div>
