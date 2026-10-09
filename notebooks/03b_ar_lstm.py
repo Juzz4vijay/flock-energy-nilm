@@ -529,7 +529,7 @@ plt.savefig(FIG_DIR / 'S3b_2_all_model_comparison.png', dpi=150, bbox_inches='ti
 print('  S3b_2_all_model_comparison.png')
 
 print('\n' + '=' * 80)
-print('DEEPAR COMPLETE')
+print('AR-LSTM COMPLETE')
 print('=' * 80)
 print(df_res[['mae','f1','energy_err_pct','constraint_viol_W']].round(3).to_string())
 print('=' * 80)
