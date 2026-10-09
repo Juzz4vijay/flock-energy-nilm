@@ -1,0 +1,115 @@
+<title>Section 1 Pipeline</title>
+<style>
+  :root {
+    --bg: #f7f8fa; --card: #fff; --fg: #1a1d23; --fg-muted: #5c6370;
+    --border: #e2e6ed; --accent: #2b7be0; --ok: #2eaa6a; --warn: #e05a2b;
+    font-family: 'Inter', system-ui, sans-serif; color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg:#13151a;--card:#1e2128;--fg:#e8eaf0;--fg-muted:#8b92a5;--border:#2e3240;color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{--bg:#13151a;--card:#1e2128;--fg:#e8eaf0;--fg-muted:#8b92a5;--border:#2e3240;color-scheme:dark;}
+  body{background:var(--bg);color:var(--fg);margin:0;padding:24px 16px;max-width:900px;margin-inline:auto;}
+  h1{font-size:1.2rem;font-weight:800;margin:0 0 2px;}
+  .sub{color:var(--fg-muted);font-size:.82rem;margin-bottom:22px;}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:18px;}
+  .label{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--fg-muted);margin-bottom:12px;}
+  .mermaid{font-size:13px;}
+  .stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px;}
+  .st{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:9px 13px;flex:1;min-width:110px;}
+  .sv{font-size:1.25rem;font-weight:800;}.sl{font-size:.72rem;color:var(--fg-muted);}
+  .blue{color:#2b7be0;}.green{color:#2eaa6a;}.orange{color:#e05a2b;}
+</style>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'base', themeVariables: { fontSize: '13px' } });</script>
+
+<h1>Section 1 — Raw Data Cleaning Pipeline</h1>
+<p class="sub">House 1 · REFIT Electrical Load Measurements · Oct 2013 – Jul 2015</p>
+
+<div class="card">
+  <div class="label">Full pipeline — detect → plan → build → validate</div>
+  <pre class="mermaid">
+flowchart TD
+    A([RAW INPUT\nPart1 + Part2\n8.5 M rows · 8-sec irregular\nPart1 missing=0  Part2 missing=NaN]) --> B
+
+    B[R1 · Sort by Unix timestamp\n2 out-of-order rows fixed]
+    B --> C
+
+    C[R2 · Deduplicate Unix collisions\n956K duplicate timestamps\nSame value → keep first\nDiff value → rolling-median tie-break\n7.3 M rows remain]
+    C --> D
+
+    D[R3 · Physics filter\nIAM > 4 000 W → NaN  3 350 readings\nAggregate: rolling-MAD 5× context filter\n45-min window · guard MAD > 10 W]
+    D --> E
+
+    E[R4 · Resample to 1-min bins\n920 031 bins\n115 149 NaN bins — no valid reading]
+    E --> F
+
+    F{Gap length?}
+
+    F -->|≤ 5 min\npolling noise| G[R5 · Linear fill\nsmooth short gaps]
+    F -->|5 – 30 min\n349 gaps| H[R5b · Linear fill\nlabelled linear_med]
+    F -->|30 min – 24 h\n16 gaps| I[R6 · SARIMA imputation\nauto_arima 2-pass\norders 2,1,0 × 1,0,1,24\n1 862 min filled]
+    F -->|> 24 h\n12 gaps| J[R7 · Outage flag\nNaN kept — not imputed\n1 845 h total]
+
+    G --> K
+    H --> K
+    I --> K
+    J --> K
+
+    K[R8 · Flatline detection\nrun ≥ 30 min at same value\nflatline_suspect flag — not removed\n114 415 rows flagged]
+    K --> L
+
+    L[R9 · Hierarchical cross-check\nΣ appliances vs Aggregate\nValidation only — no reconciliation\nspike ratio 136× confirms clamp artifact]
+    L --> M
+
+    M([OUTPUT\nhouse1_clean_1min.parquet\n920 031 rows · 3 quality flags])
+
+    style A fill:#ddeeff,stroke:#2b7be0,color:#0a2a5e
+    style M fill:#dff5ec,stroke:#2eaa6a,color:#0d3d23
+    style J fill:#fff3e0,stroke:#e05a2b,color:#7a2a00
+    style I fill:#f0f4ff,stroke:#6b8de0,color:#1a2a6e
+  </pre>
+</div>
+
+<div class="card">
+  <div class="label">Key thresholds & decisions</div>
+  <pre class="mermaid">
+flowchart LR
+    subgraph "Spike removal"
+        S1[IAM hard limit\n4 000 W] --> S2[Physics — UK 13A socket\n230V × 13A = 2 990W\n+33% margin]
+        S3[Aggregate MAD filter\n5× rolling MAD\n45-min window] --> S4[Context-aware\nreal load shift ≠ clamp glitch]
+    end
+    subgraph "Gap strategy"
+        G1{Gap length} -->|< 30 min| G2[Linear\nsmooth · no model needed]
+        G1 -->|30 min – 24 h| G3[SARIMA\ndiurnal pattern matters]
+        G1 -->|> 24 h| G4[Flag only\nforecast uncertainty too high]
+    end
+    subgraph "Dedup rule"
+        D1[Same Unix · diff value] --> D2[Keep reading\nclosest to rolling median\nrobust to spike contamination]
+    end
+  </pre>
+</div>
+
+<div class="card">
+  <div class="label">Output statistics</div>
+  <div class="stats">
+    <div class="st"><div class="sv blue">920 031</div><div class="sl">Total 1-min rows</div></div>
+    <div class="st"><div class="sv green">99.3%</div><div class="sl">Known sensor readings</div></div>
+    <div class="st"><div class="sv blue">1 862</div><div class="sl">SARIMA-imputed minutes</div></div>
+    <div class="st"><div class="sv orange">1 845 h</div><div class="sl">Outage flagged (not filled)</div></div>
+    <div class="st"><div class="sv orange">114 K</div><div class="sl">Flatline-suspect rows</div></div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="label">Remaining concerns</div>
+  <pre class="mermaid">
+flowchart LR
+    C1[Part1 zero ambiguity\nCannot tell off vs missing\n~4.4 M rows affected] -->|training risk| R1[Exclude Part1\nfrom NILM training\nor use Part2 only]
+    C2[Flatline artifact\nOfficial clean forward-fills\nlong gaps → flat line] -->|training risk| R2[Use flatline_suspect\nflag to mask in training]
+    C3[SARIMA uncertainty\n1 862 imputed minutes\nforecast not ground truth] -->|eval risk| R3[Exclude imputed\nrows from evaluation\nwindows]
+  </pre>
+</div>
