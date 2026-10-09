@@ -1,0 +1,25 @@
+# Raw data — too large for git (7.7 GB)
+data/raw/
+
+# Large intermediate parquet checkpoints
+data/processed/checkpoints/ckpt_deduped.parquet
+data/processed/checkpoints/ckpt_raw_sorted.parquet
+data/processed/checkpoints/ckpt_wm_1min.parquet
+data/processed/checkpoints/ckpt_1min.parquet
+data/processed/checkpoints/ckpt_final.parquet
+
+# Model weights (tracked — small enough)
+# nilm_*.pt are kept (< 5 MB each)
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Scratch / temp
+/private/tmp/
+*.log
