@@ -24,6 +24,83 @@ REFIT and exceeding all published cross-house results by 3.8×.
 
 ---
 
+## Section Highlights
+
+### Section 1 — Data Cleaning
+
+Before/after view of House 1 after gap imputation and Part 1 zero-masking:
+
+![Section 1 — before/after cleaning](figures/C1_before_after_week.png)
+
+Key decisions: 7 cleaning rules, SARIMA(2,1,2)(1,1,1,1440) for gaps 30 min–24 h,
+outage exclusion for gaps > 24 h. Full details in [DATA.md](DATA.md).
+
+---
+
+### Section 2 — Washing Machine EDA
+
+Cross-house usage patterns across all 19 households:
+
+![Section 2 — cross-house comparison](figures/S2_4_cross_house_comparison.png)
+
+Key finding: hot-wash fraction ranges from 9% (H19) to 99% (H7/H8/H16). Median
+cycle energy varies 3× across households. This diversity is what makes cross-house
+generalisation hard and motivates the house behavioral signature.
+
+---
+
+### Section 3 — ARNILM Training
+
+Training and validation loss (Gaussian NLL) over 40 epochs:
+
+![Section 3 — AR-LSTM training curves](figures/S3b_0_ar_lstm_training.png)
+
+Three ReduceLROnPlateau events drove val NLL from 4.84 → 3.44 between epochs 15–40.
+Val loss is still declining at epoch 40 — **60–80 epochs would push F1 from 0.64
+toward 0.70+** and close the remaining gap to within-house SGN (F1=0.76).
+Submitted at epoch 40 due to time constraints; roadmap item 1.
+
+Prediction on a sample day from House 1 (never seen during training):
+
+![Section 3 — predicted vs actual day](figures/S3b_1_ar_lstm_day.png)
+
+---
+
+### Section 4 — Practical Implications
+
+Model progression across all four models:
+
+![Section 4 — all model comparison](figures/S3b_2_all_model_comparison.png)
+
+Hot-wash intervention: 88 kWh/year saving per household (~£26, ~20 kg CO₂).
+Full analysis in [results/section4/practical_implications.md](results/section4/practical_implications.md).
+
+---
+
+## Leaderboard Position
+
+ARNILM sits between BERT4NILM (within-house) and all published cross-house results.
+No published cross-house result on REFIT comes close to 0.64 F1.
+
+| Model | F1 | MAE | Resolution | Split | Source |
+|---|---|---|---|---|---|
+| Seq2Point | 0.27 | 28W | 1-min | within-house | NILMBench 2026 |
+| Seq2Point NILMBench | 0.42 | — | 1-min | within-house | NILMBench 2026 |
+| BERT4NILM (no denoise) | 0.33 | — | 1-min | within-house | Yue et al. 2020 |
+| BERT4NILM (denoised) | 0.64 | — | 1-min | within-house | Yue et al. 2020 |
+| SGN | 0.76 | 14W | 1-min | within-house | NILMBench 2026 |
+| Seq2Point cross-dataset (REFIT→ECO) | 0.17 | — | 15-min | **cross-house** | Springer 2025 |
+| **ARNILM — ours (40 epochs)** | **0.64** | **8W** | **1-min** | **cross-house LOHO** | this work |
+
+**Reading the table:**
+- Cross-house baseline is 0.17; ARNILM is 3.8× better under the same evaluation protocol
+- ARNILM matches BERT4NILM's best F1 (0.64) but at a fundamentally harder split
+- Val loss still declining at epoch 40 — more training would move ARNILM above BERT4NILM
+- SGN (0.76) is within-house and therefore not a direct comparison; no cross-house
+  result on REFIT exceeds 0.64
+
+---
+
 ## Repository Structure
 
 ```
@@ -33,9 +110,9 @@ REFIT and exceeding all published cross-house results by 3.8×.
 │   ├── 01_raw_cleaning.py          # Section 1: script version
 │   ├── 02_wm_eda.py                # Section 2: washing machine EDA
 │   ├── 03_nilm_model.py            # Section 3: M0, M1 Seq2Point, UnifiedNILM
-│   └── 03b_ar_lstm.py               # Section 3: ARNILM (final model)
+│   └── 03b_ar_lstm.py              # Section 3: ARNILM (final model)
 ├── data/
-│   ├── raw/                        # Original REFIT CSVs (not committed)
+│   ├── raw/                        # Original REFIT CSVs (not committed — too large)
 │   └── processed/
 │       └── checkpoints/            # Parquet intermediates, model weights
 ├── figures/                        # All output plots
@@ -45,6 +122,7 @@ REFIT and exceeding all published cross-house results by 3.8×.
 │   ├── section3/                   # Model results and lessons learned
 │   ├── section4/                   # Practical implications
 │   └── full_report.md              # End-to-end narrative report
+├── auto_commit.sh                  # Hourly auto-commit script
 ├── README.md
 ├── DATA.md
 ├── RESULTS.md
@@ -166,6 +244,26 @@ threshold calibration on the validation set.
 **Single appliance head**: the model disaggregates only the washing machine. Precision
 is limited in households with dishwashers (similar cycle signature). A multi-appliance
 architecture would improve precision by explicitly modelling competing appliances.
+
+---
+
+## Continuous Commits
+
+`auto_commit.sh` checks for any file changes every hour and commits + pushes them
+automatically. Useful for keeping the remote in sync during long training runs.
+
+```bash
+# Run in the foreground (blocks the terminal)
+bash auto_commit.sh
+
+# Run in the background (continues after terminal closes)
+nohup bash auto_commit.sh > /tmp/auto_commit.log 2>&1 &
+```
+
+Each commit is tagged with a timestamp: `Progress update: 2026-10-09 14:32`.
+The script respects `.gitignore` — large raw data files and intermediate parquets
+are never committed. Stop it with `kill %1` (foreground) or `pkill -f auto_commit.sh`
+(background).
 
 ---
 
