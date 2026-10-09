@@ -29,6 +29,10 @@ household with zero labels. Every architecture decision — the house behavioral
 signature, the event context features, the Gaussian loss, the hierarchical
 constraint — serves this goal.
 
+> **Full narrative report** — end-to-end story with all formulas, mermaid diagrams,
+> research paper comparisons, and lessons learned:
+> [results/full_report.md](results/full_report.md)
+
 ---
 
 ## Leaderboard: Where We Stand
@@ -237,14 +241,33 @@ generalisation hard and motivates the house behavioral signature.
 
 ### Section 3 — ARNILM Training
 
+**Data split:**
+
+| Role | Houses | Purpose |
+|---|---|---|
+| Train | H2–H19 (16 houses) | Model weights |
+| Validation | H20, H21 (2 houses) | LR scheduling, threshold calibration |
+| Test | H1 only (never seen) | Final reported metrics |
+
 Training and validation loss (Gaussian NLL) over 40 epochs:
 
 ![Section 3 — AR-LSTM training curves](figures/S3b_0_ar_lstm_training.png)
 
+**Why val loss sits above train loss throughout** — this is expected and healthy in
+cross-house NILM, not a sign of overfitting. Train loss is computed on houses the model
+has seen repeatedly with teacher forcing; val loss is computed on H20 and H21, which
+are completely different households with different appliance ratings, noise floors, and
+daily schedules. The model has never processed their aggregate signal during training.
+The gap reflects the irreducible cross-house distribution shift — the same shift that
+makes the LOHO test on H1 meaningful. A val loss equal to train loss would mean the
+validation houses are identical to training houses, which would defeat the purpose.
+What matters is that both curves decline together and val does not diverge — confirming
+the model is genuinely generalising, not memorising.
+
 Three ReduceLROnPlateau events drove val NLL from 4.84 → 3.44 between epochs 15–40.
 Val loss is still declining at epoch 40 — **60–80 epochs would push F1 from 0.64
 toward 0.70+** and close the remaining gap to within-house SGN (F1=0.76).
-Submitted at epoch 40 due to time constraints; roadmap item 1.
+Submitted at epoch 40 due to time constraints.
 
 Prediction on a sample day from House 1 (never seen during training):
 
