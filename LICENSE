@@ -1,0 +1,59 @@
+Copyright (c) 2026 Vijay Rameshkumar. All rights reserved.
+
+TERMS AND CONDITIONS
+
+1. Definitions
+
+   "Work" means the source code, model weights, data processing pipelines,
+   documentation, figures, and all other files contained in this repository.
+
+   "Commercial Use" means any use of the Work, in whole or in part, directly or
+   indirectly, for financial gain, revenue generation, or in the course of trade
+   or business.
+
+2. Permitted Uses
+
+   You may view and read the Work for personal, educational, or research purposes.
+   You may cite this Work in academic publications with full attribution to the
+   author.
+
+3. Restrictions
+
+   a. No Commercial Use. You may not use the Work or any derivative of it for
+      Commercial Use without prior written approval from the author.
+
+   b. No Redistribution Without Approval. You may not copy, distribute, publish,
+      sublicense, or make the source code, model weights, or any substantial
+      portion of the Work publicly available in any form — modified or unmodified —
+      without prior written approval from the author.
+
+   c. No Derivative Works for Distribution. You may not create derivative works
+      based on the Work and distribute, publish, or otherwise make them available
+      to third parties without prior written approval from the author.
+
+   d. No Patent Use. No licence is granted to any patents held by the author or
+      any contributor.
+
+4. Attribution
+
+   Any permitted use of the Work must include clear attribution:
+   "Based on work by Vijay Rameshkumar — REFIT Data Cleaning and Appliance
+   Disaggregation (2026)."
+
+5. Approval Process
+
+   To request approval for commercial use, redistribution, or derivative works,
+   contact the author directly. Approval must be granted in writing before use.
+
+6. Disclaimer of Warranties
+
+   THE WORK IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+   INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+   PARTICULAR PURPOSE, AND NON-INFRINGEMENT. IN NO EVENT SHALL THE AUTHOR BE LIABLE
+   FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM, OUT OF, OR IN CONNECTION
+   WITH THE WORK OR THE USE OR OTHER DEALINGS IN THE WORK.
+
+7. Termination
+
+   Any breach of these terms automatically terminates your rights under this licence.
+   The author reserves the right to pursue legal remedies for any unauthorised use.

@@ -24,6 +24,128 @@ REFIT and exceeding all published cross-house results by 3.8×.
 
 ---
 
+## End-to-End Architecture
+
+```mermaid
+flowchart TD
+    subgraph S1["Section 1 — Data Cleaning"]
+        RAW["Raw REFIT CSVs\n8-sec, 19 houses\nPart1: zeros=missing\nPart2: NaN=missing"]
+        CLEAN["Cleaning Pipeline\n• Part1 zero-masking\n• 1-min resampling\n• Gap classification\n• Linear interp ≤30min\n• SARIMA 30min–24h\n• Outage flagging >24h"]
+        RAW --> CLEAN
+    end
+
+    subgraph S2["Section 2 — Cycle Detection & EDA"]
+        CLEAN --> EVT["Event Detection\nThreshold: 80W\nHysteresis: 5min\nDuration: 15–180min"]
+        EVT --> CYC["Per-cycle features\nduration · energy · peak\nhour_start · hot_wash flag"]
+        CYC --> SIG["House Behavioral Signature\n7 continuous features\nsig_med_dur · sig_med_energy\nsig_hot_frac · sig_ph_sin/cos\nsig_med_peak · sig_hot_frac²"]
+    end
+
+    subgraph S3["Section 3 — ARNILM Training"]
+        CLEAN --> DYN["Dynamic Covariates\nper timestep\nev_active · ev_dur · ev_energy\nev_peak · since_ev\nhour_sin/cos · dow_sin/cos"]
+        SIG --> LSTM
+        DYN --> LSTM
+        CLEAN --> LSTM["ARNILM\nShared LSTM 128×2\nN_INPUT = 18 per step"]
+        LSTM --> OUT["Gaussian Output\nμ_t · σ_t per minute"]
+        OUT --> LOSS["Training Loss\nGaussian NLL\n+ λ·max(μ−Agg, 0)"]
+        LOSS -->|"ReduceLROnPlateau\n3 decay events"| LSTM
+    end
+
+    subgraph LOHO["Leave-House-1-Out Evaluation"]
+        TRAIN["Train: H2–H19\n18 households"]
+        VAL["Validate: H20, H21\nthreshold calibration"]
+        TEST["Test: H1 only\nnever seen in training"]
+        TRAIN --> LSTM
+        VAL -->|"threshold=10W"| INFER
+        OUT --> INFER["Autoregressive Inference\nz_t-1 = prev prediction\nchunked · hidden state carried"]
+        INFER --> CLIP["Hard clip\nŷ = min(μ, Aggregate)"]
+        CLIP --> TEST
+    end
+
+    subgraph COLD["New House — Zero Cold Start"]
+        NEW["New household\naggregate only, no labels"]
+        NEW --> EVT2["Cycle detection\non aggregate"]
+        EVT2 --> SIG2["Compute 7-feature\nbehavioral signature"]
+        SIG2 --> LSTM
+    end
+
+    subgraph S4["Section 4 — Practical Implications"]
+        TEST --> METRICS["F1=0.64 · MAE=8W\nconstraint_viol=0\n3.8× cross-house baseline"]
+        TEST --> HOT["Hot-wash intervention\n88 kWh/yr · £26 · 20kg CO₂\nper targeted household"]
+    end
+
+    style S1 fill:#f0f4ff,stroke:#6c8ebf
+    style S2 fill:#fff8e8,stroke:#d6b656
+    style S3 fill:#f5f0ff,stroke:#9673a6
+    style LOHO fill:#e8f5e9,stroke:#5a9e5a
+    style COLD fill:#fff0f0,stroke:#e07070
+    style S4 fill:#f0ffff,stroke:#5a9e9e
+```
+
+---
+
+## Cycle Detection Algorithm
+
+The cycle detector runs on the aggregate sub-meter signal (no appliance labels needed)
+and is the foundation for both the EDA in Section 2 and the house behavioral signature
+used as model input in Section 3.
+
+```
+Input:  aggregate power series  agg[t]  (1-minute resolution, Watts)
+Output: list of cycles  {start, end, energy_Wh, peak_W, hot_wash}
+
+Parameters (derived from UK appliance specs, not tuned to data):
+  THRESH_ON   = 80 W       event start threshold
+  THRESH_OFF  = 25 W       event end threshold
+  HYST_MIN    = 5 min      sustained drop required to close event
+  DUR_MIN     = 15 min     shortest valid WM cycle
+  DUR_MAX     = 180 min    longest valid WM cycle
+  HOT_THRESH  = 0.35 kWh   energy threshold for hot-wash classification
+
+Algorithm:
+  state ← IDLE
+  for t in 0..T:
+    if state == IDLE:
+      if agg[t] >= THRESH_ON:
+        ev_start ← t
+        state ← ACTIVE
+
+    elif state == ACTIVE:
+      if agg[t] < THRESH_OFF:
+        drop_start ← t
+        state ← COOLING
+
+      else:
+        update cumulative energy and peak
+
+    elif state == COOLING:
+      if agg[t] >= THRESH_OFF:
+        state ← ACTIVE           # false drop, still in cycle
+
+      elif (t - drop_start) >= HYST_MIN:
+        ev_end ← drop_start      # confirmed cycle end
+        dur ← ev_end - ev_start
+
+        if DUR_MIN <= dur <= DUR_MAX:
+          energy ← sum(agg[ev_start:ev_end]) / 60   # Wh
+          emit cycle(start=ev_start, end=ev_end,
+                     energy_Wh=energy, peak_W=peak,
+                     hot_wash=(energy >= HOT_THRESH))
+
+        state ← IDLE
+```
+
+**Why hysteresis matters**: without the 5-minute sustained drop requirement, the
+drain-and-spin phase of a WM cycle (rapid oscillation between 200W agitation and
+brief stops) fragments a single 90-minute cycle into 4–8 spurious short events.
+Hysteresis collapses these into one cycle with the correct duration and energy.
+
+**Why energy-based hot-wash classification**: at 1-minute resolution, temperature
+phase transitions are averaged out. The total cycle energy is a reliable proxy —
+a 60°C cycle draws ~1.1 kWh versus ~0.25 kWh at 30°C, an 4× difference that
+survives the averaging.
+
+---
+
 ## Section Highlights
 
 ### Section 1 — Data Cleaning
@@ -123,6 +245,7 @@ No published cross-house result on REFIT comes close to 0.64 F1.
 │   ├── section4/                   # Practical implications
 │   └── full_report.md              # End-to-end narrative report
 ├── auto_commit.sh                  # Hourly auto-commit script
+├── LICENSE                         # All rights reserved — no commercial use
 ├── README.md
 ├── DATA.md
 ├── RESULTS.md
@@ -339,9 +462,10 @@ energy budget decomposition.
 
 ## AI Tools
 
-Standard coding tools used for development and debugging. All architecture decisions,
-feature engineering, and experimental design are original work validated against
-domain reasoning and empirical results.
+Claude (Anthropic) was used as a coding assistant during development — debugging
+PyTorch training loops, optimising data pipelines, and literature review framing.
+All architecture decisions, feature engineering choices, and experimental design
+are original work validated against domain reasoning and empirical results.
 
 ---
 
@@ -361,3 +485,13 @@ domain reasoning and empirical results.
 
 5. **Indian household transfer** — collect 1-minute aggregate data from Indian
    households, compute behavioral signatures, fine-tune from UK checkpoint
+
+---
+
+## License
+
+Copyright (c) 2026 Vijay Rameshkumar. All rights reserved.
+
+This work is provided for viewing and academic citation only.
+**Commercial use and redistribution of source code or model weights require prior
+written approval from the author.** See [LICENSE](LICENSE) for full terms.
