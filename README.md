@@ -343,7 +343,6 @@ Full analysis in [results/section4/practical_implications.md](results/section4/p
 │   ├── section3/                   # Model results and lessons learned
 │   ├── section4/                   # Practical implications
 │   └── full_report.md              # End-to-end narrative report
-├── auto_commit.sh                  # Hourly auto-commit script
 ├── LICENSE                         # All rights reserved — no commercial use
 ├── README.md
 ├── DATA.md
@@ -466,26 +465,6 @@ threshold calibration on the validation set.
 **Single appliance head**: the model disaggregates only the washing machine. Precision
 is limited in households with dishwashers (similar cycle signature). A multi-appliance
 architecture would improve precision by explicitly modelling competing appliances.
-
----
-
-## Continuous Commits
-
-`auto_commit.sh` checks for any file changes every hour and commits + pushes them
-automatically. Useful for keeping the remote in sync during long training runs.
-
-```bash
-# Run in the foreground (blocks the terminal)
-bash auto_commit.sh
-
-# Run in the background (continues after terminal closes)
-nohup bash auto_commit.sh > /tmp/auto_commit.log 2>&1 &
-```
-
-Each commit is tagged with a timestamp: `Progress update: 2026-10-09 14:32`.
-The script respects `.gitignore` — large raw data files and intermediate parquets
-are never committed. Stop it with `kill %1` (foreground) or `pkill -f auto_commit.sh`
-(background).
 
 ---
 
