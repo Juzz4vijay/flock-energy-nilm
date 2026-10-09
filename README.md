@@ -153,64 +153,57 @@ flowchart LR
 
 ## Cycle Detection Algorithm
 
-The cycle detector runs on the aggregate sub-meter signal (no appliance labels needed)
-and is the foundation for both the EDA in Section 2 and the house behavioral signature
-used as model input in Section 3.
+Runs on the aggregate signal alone — no appliance sub-meter labels needed.
+Feeds both the EDA (Section 2) and the 7-feature house behavioral signature (Section 3).
 
-```
-Input:  aggregate power series  agg[t]  (1-minute resolution, Watts)
-Output: list of cycles  {start, end, energy_Wh, peak_W, hot_wash}
+```mermaid
+stateDiagram-v2
+    direction LR
 
-Parameters (derived from UK appliance specs, not tuned to data):
-  THRESH_ON   = 80 W       event start threshold
-  THRESH_OFF  = 25 W       event end threshold
-  HYST_MIN    = 5 min      sustained drop required to close event
-  DUR_MIN     = 15 min     shortest valid WM cycle
-  DUR_MAX     = 180 min    longest valid WM cycle
-  HOT_THRESH  = 0.35 kWh   energy threshold for hot-wash classification
+    [*] --> IDLE
 
-Algorithm:
-  state ← IDLE
-  for t in 0..T:
-    if state == IDLE:
-      if agg[t] >= THRESH_ON:
-        ev_start ← t
-        state ← ACTIVE
+    IDLE --> ACTIVE      : agg[t] ≥ 80 W\nrecord ev_start = t
 
-    elif state == ACTIVE:
-      if agg[t] < THRESH_OFF:
-        drop_start ← t
-        state ← COOLING
+    ACTIVE --> ACTIVE    : agg[t] ≥ 25 W\naccumulate energy\nupdate peak_W
 
-      else:
-        update cumulative energy and peak
+    ACTIVE --> COOLING   : agg[t] < 25 W\nrecord drop_start = t
 
-    elif state == COOLING:
-      if agg[t] >= THRESH_OFF:
-        state ← ACTIVE           # false drop, still in cycle
+    COOLING --> ACTIVE   : agg[t] ≥ 25 W\n(false drop — still in cycle)
 
-      elif (t - drop_start) >= HYST_MIN:
-        ev_end ← drop_start      # confirmed cycle end
-        dur ← ev_end - ev_start
+    COOLING --> COOLING  : agg[t] < 25 W\ndrop sustained < 5 min
 
-        if DUR_MIN <= dur <= DUR_MAX:
-          energy ← sum(agg[ev_start:ev_end]) / 60   # Wh
-          emit cycle(start=ev_start, end=ev_end,
-                     energy_Wh=energy, peak_W=peak,
-                     hot_wash=(energy >= HOT_THRESH))
+    COOLING --> CHECK    : drop sustained ≥ 5 min\nev_end = drop_start\ndur = ev_end − ev_start
 
-        state ← IDLE
+    CHECK --> EMIT       : 15 min ≤ dur ≤ 180 min\n(valid WM cycle window)
+    CHECK --> IDLE       : dur < 15 min or dur > 180 min\n(discard — not a WM cycle)
+
+    EMIT --> HOT         : energy ≥ 0.35 kWh\nhot_wash = True
+    EMIT --> COLD        : energy < 0.35 kWh\nhot_wash = False
+
+    HOT --> IDLE         : emit cycle record\n{start, end, energy_Wh,\npeak_W, hot_wash=True}
+    COLD --> IDLE        : emit cycle record\n{start, end, energy_Wh,\npeak_W, hot_wash=False}
 ```
 
-**Why hysteresis matters**: without the 5-minute sustained drop requirement, the
-drain-and-spin phase of a WM cycle (rapid oscillation between 200W agitation and
-brief stops) fragments a single 90-minute cycle into 4–8 spurious short events.
-Hysteresis collapses these into one cycle with the correct duration and energy.
+**Parameters** — derived from UK appliance specs, not tuned to the data:
 
-**Why energy-based hot-wash classification**: at 1-minute resolution, temperature
-phase transitions are averaged out. The total cycle energy is a reliable proxy —
-a 60°C cycle draws ~1.1 kWh versus ~0.25 kWh at 30°C, an 4× difference that
-survives the averaging.
+| Parameter | Value | Rationale |
+|---|---|---|
+| THRESH_ON | 80 W | Above background noise; below smallest WM draw |
+| THRESH_OFF | 25 W | Below agitation phase minimum |
+| HYST_MIN | 5 min | Drain/spin oscillations last < 3 min — hysteresis absorbs them |
+| DUR_MIN | 15 min | Shortest UK quick-wash programme (2013–2015 market) |
+| DUR_MAX | 180 min | Longest UK cotton programme |
+| HOT_THRESH | 0.35 kWh | Midpoint between 30°C (~0.25 kWh) and 60°C (~1.1 kWh) |
+
+**Why hysteresis is critical**: the drain-and-spin phase oscillates rapidly between
+200 W agitation and brief stops. Without the 5-minute sustained drop requirement,
+one 90-minute cycle fragments into 4–8 spurious short events — corrupting cycle
+duration, energy, and the hot-wash fraction that feeds the house signature.
+
+**Why energy classifies wash temperature**: at 1-minute resolution, the heating
+phase's thermal cycling pattern is averaged out. But total cycle energy survives —
+a 60°C cycle draws ~1.1 kWh versus ~0.25 kWh at 30°C, a 4× gap that is reliably
+detectable even at coarse resolution.
 
 ---
 
