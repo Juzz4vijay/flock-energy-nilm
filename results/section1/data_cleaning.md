@@ -148,14 +148,14 @@ We compute the ratio of the aggregate to the sum of all 9 IAMs at every minute. 
 
 ## 6. Validation Plots
 
-Four plots are saved to `figures/` to verify the pipeline visually:
+Four plots saved to `figures/`:
 
 | Figure | What it shows |
 |---|---|
-| `C1_time_diff_distribution.png` | Distribution of raw inter-reading intervals — confirms the gap taxonomy (0 s duplicates, 1–15 s normal poll, 5–30 min short outages, >24 h long outages) |
-| `C1_before_after_week.png` | Aggregate + WM + Fridge before vs after cleaning (Nov 1–10 2013) — spikes removed, outage window flagged, cleaning impact visible per channel |
-| `C1_zoom_outage.png` | 36-hour zoom on the Nov 7–8 2013 outage — correctly flagged as outage (not imputed), SARIMA only applied to gaps ≤24 h |
-| `C1_sarima_zoom.png` | Before/after comparison for the 777-min SARIMA fill (Nov 10 2014) — shows the diurnal pattern the model learned and the smooth boundary transition |
+| `C1_pipeline_overview.png` | Bin disposition at each pipeline stage (left) and row count funnel (right) — 8.5M raw rows → 920k 1-min bins, with imputation breakdown |
+| `C1_quality_breakdown.png` | Three-panel daily timeline: imputation source (observed / linear / SARIMA), quality flags (outage / flatline), and WM ON activity |
+| `C1_before_after.png` | One representative week — aggregate with quality flags overlaid (top) vs cleaned aggregate + WM disaggregation (bottom) |
+| `C1_sarima_zoom.png` | Zoom on longest SARIMA gap — observed boundary transitions and imputed region highlighted |
 
 ---
 
