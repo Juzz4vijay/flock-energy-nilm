@@ -146,7 +146,7 @@ signal.
 house signature) improves F1 from 0.07 to 0.12 and reduces energy error from 638% to
 293%. But precision remains poor (0.06) — the model still over-predicts.
 
-**ARNILM V8**: LSTM autoregressive architecture with SGN multiplicative gate. F1=0.306,
+**ARNILM V8**: sequence-to-sequence LSTM with SGN multiplicative gate (no autoregressive feedback — previous WM predictions are not fed back as inputs; the LSTM hidden state carries aggregate sequence context). F1=0.306,
 MAE=20W, energy error=69.7%. Compared to UnifiedNILM: F1 improves 2.6×, energy error
 drops from 293% to 70%, constraint violations remain zero. The gate (pos_weight=3.5)
 is the key difference from earlier versions — it forces the output toward zero during
@@ -155,6 +155,8 @@ off periods, directly reducing the false-positive energy integral.
 ### Cold-start evaluation (leakage fix)
 
 The original V8 evaluation used H1's full Part 2 aggregate history to compute its household signature (7 statistics capturing cycle duration, energy, peak power, and time-of-day preference). This is leakage: in deployment, only a calibration window of aggregate is available before inference begins.
+
+**Relationship to the headline F1=0.306**: the primary result (F1=0.306) is from the training script's own evaluation run on the **full H1 Part 2 period** (670,317 timesteps, April 2014 → July 2015). The cold-start A/B experiment below uses the **post-14-day window** (650,157 timesteps, April 15 2014 → July 2015) because the first 14 days are withheld for signature computation. The ~20k timestep difference shifts the score to 0.332 (Exp A, full-history sig). Both measure the same model on the same house; the difference is purely which timesteps are included.
 
 **Controlled A/B design**: both experiments evaluate on the same held-out period (post day-14: 2014-04-15 → 2015-07-10, 650,157 timesteps), with identical model weights, dynamic features, and threshold. The only variable is the signature:
 - **Experiment A (control)**: full-history H1 aggregate signature
