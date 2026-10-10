@@ -1,0 +1,2 @@
+model,mae,rmse,mae_on,f1,precision,recall,energy_err_pct,constraint_viol_W
+ARNILM v8b (normalized MSE + 4 shape feat + SGN gate),20.91,118.61,411.01,0.3075,0.2628,0.3704,71.7,0.0

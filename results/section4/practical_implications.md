@@ -74,9 +74,8 @@ The disaggregation model provides the measurement instrument directly:
    by seasonal effects, occupancy changes, and other appliances. NILM makes
    the measurement precise and appliance-specific.
 
-The model's σ (uncertainty) output flags weeks where cycle detection confidence
-is low — these are excluded from the before/after comparison to avoid noisy
-measurements corrupting the impact estimate.
+Weeks where the model detects fewer than 3 complete cycles are excluded from the
+before/after comparison — too few cycles to give a reliable energy estimate.
 
 ---
 
@@ -228,13 +227,13 @@ relative decline from an already modest baseline. For a stronger model:
 
 | Model | F1 at 1-min | Expected F1 at 15-min | Expected F1 at 30-min |
 |---|---|---|---|
-| Seq2Point | 0.27 | 0.17 (observed) | < 0.10 |
-| ARNILM (ours) | 0.64 | ~0.25–0.35 (estimated) | < 0.15 |
+| Seq2Point | 0.27 | 0.17 (observed, cross-dataset) | < 0.10 |
+| **ARNILM V8 (ours)** | **0.306** | ~0.15–0.22 (estimated) | < 0.10 |
 | SGN | 0.76 | ~0.35–0.45 (estimated) | ~0.15 |
 
-The ARNILM estimate is based on the fact that the LSTM's context window is
-naturally longer than a CNN window model, giving it some robustness to coarser
-resolution. But the fundamental problem remains: at 15 minutes, a cycle heating phase
+The ARNILM V8 estimate is based on the same proportional degradation observed for
+Seq2Point (37% relative drop from 1-min to 15-min). The LSTM's longer context gives
+some robustness but the fundamental problem remains — cycle shape information is lost. But the fundamental problem remains: at 15 minutes, a cycle heating phase
 and agitation phase each produce at most 2 data points. The discriminating shape
 information is gone.
 

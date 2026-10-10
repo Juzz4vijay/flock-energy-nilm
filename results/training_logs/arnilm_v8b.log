@@ -1,0 +1,103 @@
+Device: cuda
+Architecture: ARNILM v8b — Cross-house LSTM + SGN gate
+  V7 fixes:
+    1. Normalized MSE: (y_hat-y)²/MAX_WM_W²  [balanced gradients]
+    2. +4 derivative/shape features  [N_INPUT 17→21]
+    3. CAL_HOUSES=[5,7,11,17] only  [no H20/H21]
+Train: [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 16, 17, 18, 19]  Valid: [20, 21]  Cal: [5, 7, 11, 17]  Test: H1
+
+Loading data ...
+  Part2: 12,163,779 rows  |  19 houses
+
+House behavioral signatures (aggregate-only) ...
+  H 1  dur=137min  hot=86%  peak=2618W
+  H 2  dur=0min  hot=0%  peak=0W
+  H 3  dur=58min  hot=78%  peak=2735W
+  H 4  dur=44min  hot=38%  peak=621W
+  H 5  dur=32min  hot=82%  peak=2886W
+  H 6  dur=93min  hot=71%  peak=3054W
+  H 7  dur=65min  hot=86%  peak=2559W
+  H 8  dur=150min  hot=67%  peak=3302W
+  H 9  dur=0min  hot=0%  peak=0W
+  H10  dur=76min  hot=82%  peak=909W
+  H11  dur=138min  hot=100%  peak=2877W
+  H13  dur=53min  hot=65%  peak=1731W
+  H15  dur=0min  hot=0%  peak=0W
+  H16  dur=0min  hot=0%  peak=0W
+  H17  dur=138min  hot=86%  peak=2035W
+  H18  dur=58min  hot=60%  peak=1199W
+  H19  dur=56min  hot=29%  peak=715W
+  H20  dur=0min  hot=0%  peak=0W
+  H21  dur=120min  hot=100%  peak=2350W
+
+Engineering dynamic covariates (V7: +4 derivative/shape features) ...
+  N_INPUT = 21  (1 agg + 13 dyn + 7 static)
+  H 1: 670,317 timesteps
+  H 2: 608,166 timesteps
+  H 3: 615,536 timesteps
+  H 4: 665,878 timesteps
+  H 5: 664,909 timesteps  [cal from 624,589]
+  H 6: 653,655 timesteps
+  H 7: 666,851 timesteps  [cal from 626,531]
+  H 8: 583,177 timesteps
+  H 9: 667,853 timesteps
+  H10: 655,868 timesteps
+  H11: 564,697 timesteps  [cal from 524,377]
+  H13: 612,667 timesteps
+  H15: 666,851 timesteps
+  H16: 666,851 timesteps
+  H17: 640,253 timesteps  [cal from 599,933]
+  H18: 602,615 timesteps
+  H19: 641,013 timesteps
+  H20: 646,305 timesteps
+  H21: 670,317 timesteps
+
+Building sequence dataset ...
+  Train: 27,795  Valid: 3,654  Cal: 444
+
+── Training NILM_LSTM_V7 (845,058 params) ──
+   Cross-house LSTM + SGN gate + normalized MSE + 4 shape features
+  Ep  1/80  train=0.4438  val=0.3181  (12s)
+  Ep  5/80  train=0.3051  val=0.2936  (55s)
+  Ep 10/80  train=0.2797  val=0.2388  (110s)
+  Ep 15/80  train=0.2265  val=0.2043  (166s)
+  Ep 20/80  train=0.2120  val=0.2223  (222s)
+  Ep 25/80  train=0.1686  val=0.2047  (278s)
+  Ep 30/80  train=0.1492  val=0.2052  (333s)
+  Ep 35/80  train=0.1370  val=0.2186  (389s)
+  Ep 40/80  train=0.1290  val=0.2179  (444s)
+  Ep 45/80  train=0.1245  val=0.2277  (500s)
+  Ep 50/80  train=0.1223  val=0.2257  (556s)
+  Ep 55/80  train=0.1212  val=0.2285  (611s)
+  Ep 60/80  train=0.1202  val=0.2297  (666s)
+  Ep 65/80  train=0.1198  val=0.2285  (722s)
+  Ep 70/80  train=0.1193  val=0.2296  (777s)
+  Ep 75/80  train=0.1188  val=0.2323  (833s)
+  Ep 80/80  train=0.1184  val=0.2315  (889s)
+  Best val loss 0.1959  |  checkpoint saved.
+
+Inference on House 1 (GPU-parallel chunked) ...
+  Inference done.
+
+Calibrating p_on threshold on CAL_HOUSES=[5,7,11,17] ...
+  Best p_on >= 0.55  (cal F1=0.519)
+  Config saved → data/processed/checkpoints/nilm_ar_lstm_v8b_config.json
+
+Evaluating ...
+
+========================================================================
+RESULTS — House 1 test set (cross-house LOHO)
+========================================================================
+  MAE:            20.55 W
+  RMSE:           120.48 W
+  MAE (ON):       404.86 W
+  F1:             0.3028
+  Precision:      0.3443
+  Recall:         0.2702
+  Energy error:   69.3%
+  Constraint viol:0.000 W
+========================================================================
+V8 baseline: MAE=20W  F1=0.306  Energy_err=69.7%
+Saved → results/section3/metrics_ar_lstm_v8.csv
+
+ARNILM v8b COMPLETE

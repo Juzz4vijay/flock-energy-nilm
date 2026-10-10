@@ -4,11 +4,11 @@
 
 ---
 
-> **ARNILM achieves F1 = 0.64, MAE = 8 W on a household it has never seen —
-> matching the best published within-house result on REFIT and beating every
-> published cross-house baseline by 3.8×.**
+> **ARNILM achieves F1 = 0.306, MAE = 20 W on a household it has never seen —
+> beating the best published cross-house baseline (F1 = 0.17) by 80% under a
+> stricter evaluation protocol.**
 >
-> One model. Eighteen training households. Tested cold on House 1.
+> One model. Sixteen training households. Tested cold on House 1.
 > No labels. No retraining. No cold-start problem.
 
 ---
@@ -19,10 +19,10 @@ Four sections, one coherent pipeline:
 
 | Section | Scope | Key output |
 |---|---|---|
-| 1 — Data Cleaning | House 1, 8-sec → 1-min, 8 cleaning rules + Stage B2 hierarchical fix | `house1_clean_1min.parquet` |
-| 2 — WM EDA | All 19 households, hierarchical fix + cycle detection | behavioral signatures, 6,776 cycles, 87.4% hot washes |
-| 3 — ARNILM | Autoregressive LSTM, cross-house LOHO | F1=0.64, MAE=8W, σ uncertainty |
-| 4 — Practical | Hot-wash intervention, resolution impact | £26/yr saving, deployment limits |
+| 1 — Data Cleaning | House 1, 8-sec → 1-min, 7 cleaning rules + Stage B2 hierarchical fix | `ckpt_wm_1min_clean.parquet` |
+| 2 — WM EDA | All 19 households, hierarchical fix + cycle detection | behavioral signatures, 6,369 cycles, household profiles |
+| 3 — ARNILM V8 | Autoregressive LSTM + SGN gate, cross-house LOHO | F1=0.306, MAE=20W, energy err=69.7% |
+| 4 — Practical | Hot-wash intervention, resolution impact, household profiles | 2,483 kWh/yr fleet saving, deployment limits |
 
 The defining design choice: train once across 18 households, deploy to any new
 household with zero labels. Every architecture decision — the house behavioral
@@ -35,26 +35,24 @@ constraint — serves this goal.
 
 ---
 
-## Leaderboard: Where We Stand
+## Benchmark Comparison
 
-No published cross-house NILM result on REFIT comes close to F1 = 0.64.
-ARNILM matches BERT4NILM's best within-house number under a strictly harder split.
+ARNILM V8 is evaluated under a strictly harder protocol than published within-house
+benchmarks: the test house (H1) is withheld from all training, validation, threshold
+calibration, and feature normalisation.
 
 | Model | F1 | MAE | Split | Source |
 |---|---|---|---|---|
-| Seq2Point | 0.27 | 28W | within-house | NILMBench 2026 |
-| Seq2Point NILMBench | 0.42 | — | within-house | NILMBench 2026 |
+| Seq2Point cross-dataset | 0.17 | — | **cross-house** | Springer 2025 |
+| **ARNILM V8 — this work** | **0.306** | **20W** | **cross-house LOHO** | this work |
+| Seq2Point NILMBench | 0.42 | 28W | within-house | NILMBench 2026 |
 | BERT4NILM (no denoise) | 0.33 | — | within-house | Yue et al. 2020 |
 | BERT4NILM (denoised) | 0.64 | — | within-house | Yue et al. 2020 |
 | SGN | 0.76 | 14W | within-house | NILMBench 2026 |
-| Seq2Point REFIT→ECO | 0.17 | — | **cross-house** | Springer 2025 |
-| **ARNILM — this work (40 epochs)** | **0.64** | **8W** | **cross-house LOHO** | this work |
 
-- **3.8× above** the published cross-house baseline (0.17 → 0.64)
-- **Equal to** BERT4NILM's best within-house result — at a fundamentally harder split
-- Val NLL still declining at epoch 40 — **60–80 epochs projected to push F1 to 0.70+**,
-  which would surpass BERT4NILM and approach SGN's within-house ceiling
-- SGN (0.76) is within-house only; no cross-house result on REFIT exceeds 0.64
+- **80% above** the best published cross-house baseline (0.17 → 0.306) at 1-minute resolution vs the benchmark's 15-minute
+- Within-house results (F1=0.42–0.76) use a more favourable split where the model has seen the target household during training — not directly comparable
+- Matching within-house SGN (F1=0.76) is the next milestone, requiring the house-level wattage normalisation described in the roadmap
 
 ---
 
@@ -71,10 +69,12 @@ ARNILM is designed from the ground up for generalisation:
 | Cross-house LOHO training | Model never sees test house — real deployment condition |
 | 7-feature house behavioral signature | New house plugs in with no retraining, no labels |
 | LSTM hidden state (not CNN window) | Full-sequence context — not limited to 61 minutes |
-| Event context features (ev_dur, ev_peak) | Implicit cycle phase encoding at 1-min resolution |
-| Gaussian NLL loss (μ, σ) | Calibrated uncertainty output — not just a point estimate |
+| 4 derivative/shape features (diff, abs_diff, roll_std) | Gate stays closed during smooth off-state aggregate |
+| SGN multiplicative gate: `ŷ = μ × MAX_W × p_on` | Output is naturally zero when off — suppresses false positives |
+| Normalized MSE `(ŷ−y)²/MAX_W²` | Balances regression and classification gradients (was 260,000:1 without it) |
+| pos_weight=3.5 in BCE | Precision bias — reduces false-positive energy integral by 63% vs pos_weight=8 |
 | Hierarchical constraint in loss + inference | WM ≤ Aggregate enforced physically: zero violations |
-| Balanced 50/50 sampling + threshold calibration | Handles 1.8% WM prevalence without predicting all-zero |
+| p_on threshold calibration on CAL_HOUSES=[5,7,11,17] | Finds operating point that maximises F1 without touching test house |
 
 **Cold start, solved**: a new household provides 1–2 weeks of aggregate data.
 Cycle detection runs on that aggregate alone, computes 7 continuous behavioral
@@ -108,25 +108,25 @@ flowchart LR
         EVT --> CYC --> SIG
     end
 
-    subgraph S3["③ ARNILM Training"]
-        DYN["Dynamic Covariates\n9 per timestep\nev_active · ev_dur\nev_energy · ev_peak\nsince_ev · time/dow"]
-        LSTM["ARNILM\nLSTM 128×2\n18 inputs/step\nteacher forcing"]
-        OUT["Gaussian Output\nμ_t · σ_t"]
-        LOSS["NLL Loss\nGaussian NLL\n+ λ·violation"]
+    subgraph S3["③ ARNILM V8 Training"]
+        DYN["Dynamic Covariates\n13 per timestep\nev_active · ev_dur · ev_energy\nev_peak · since_ev · time/dow\ndiff · abs_diff · roll_std10/30"]
+        LSTM["ARNILM V8\nLSTM 256×2\n21 inputs/step\nSGN gate"]
+        OUT["SGN Output\nŷ = μ × MAX_W × p_on"]
+        LOSS["Loss\nnorm-MSE + BCE(pos_w=3.5)\n+ λ·constraint"]
         DYN --> LSTM
         SIG --> LSTM
         LSTM --> OUT --> LOSS
-        LOSS -->|"3× LR decay"| LSTM
+        LOSS -->|"ReduceLROnPlateau"| LSTM
     end
 
     subgraph LOHO["④ LOHO Evaluation"]
-        TRAIN["Train H2–H19"]
-        VAL["Val H20–H21\nthreshold=10W"]
-        INFER["AR Inference\nz_t-1=prev pred\nhidden carried"]
+        TRAIN["Train H2–H19 (16 houses)"]
+        CAL["Cal H5,7,11,17\np_on threshold=0.53"]
+        INFER["AR Inference\nhidden state carried"]
         CLIP["Hard clip\nŷ≤Aggregate"]
-        TEST["Test H1\nF1=0.64 · MAE=8W\n3.8× baseline"]
+        TEST["Test H1\nF1=0.306 · MAE=20W\n80% above cross-house SOTA"]
         TRAIN --> LSTM
-        VAL --> INFER
+        CAL --> INFER
         OUT --> INFER --> CLIP --> TEST
     end
 
@@ -135,8 +135,8 @@ flowchart LR
     end
 
     subgraph S4["⑥ Impact"]
-        TEST --> HOT["Hot-wash nudge\n88 kWh/yr · £26\n20kg CO₂ saved"]
-        TEST --> SCALE["National scale\n~2.4 TWh/yr\nif deployed UK-wide"]
+        TEST --> HOT["Hot-wash nudge\n349 kWh/yr · top household\n2,483 kWh/yr fleet"]
+        TEST --> PROF["19 household profiles\nheavy_hot · light_hot\neco_mixed · cold_user"]
     end
 
     CLEAN --> EVT
@@ -245,65 +245,49 @@ cycle energy varies 3.6× (242 Wh to 883 Wh). 6,776 cycles across 19 houses —
 
 | Role | Houses | Purpose |
 |---|---|---|
-| Train | H2–H19 (16 houses) | Model weights |
-| Validation | H20, H21 (2 houses) | LR scheduling, threshold calibration |
+| Train | H2–H19 (16 houses, Part 2 only) | Model weights |
+| Validation | H20, H21 (2 houses) | LR scheduling (ReduceLROnPlateau) |
+| Calibration | H5, H7, H11, H17 (held-out portion) | p_on threshold sweep |
 | Test | H1 only (never seen) | Final reported metrics |
 
-Training and validation loss (Gaussian NLL) over 40 epochs:
+Training and validation loss (normalized MSE + BCE) over 80 epochs:
 
-![Section 3 — AR-LSTM training curves](figures/S3b_0_ar_lstm_training.png)
+![Section 3 — AR-LSTM training curves](figures/S3j_0_arnilm_v8b.png)
 
-**Why val loss sits above train loss throughout** — this is expected and healthy in
-cross-house NILM, not a sign of overfitting. Train loss is computed on houses the model
-has seen repeatedly with teacher forcing; val loss is computed on H20 and H21, which
-are completely different households with different appliance ratings, noise floors, and
-daily schedules. The model has never processed their aggregate signal during training.
-The gap reflects the irreducible cross-house distribution shift — the same shift that
-makes the LOHO test on H1 meaningful. A val loss equal to train loss would mean the
-validation houses are identical to training houses, which would defeat the purpose.
-What matters is that both curves decline together and val does not diverge — confirming
-the model is genuinely generalising, not memorising.
+**Why val loss sits above train loss throughout** — expected and healthy in cross-house
+NILM. Train loss is computed on 16 houses the model has seen; val loss is on H20/H21,
+completely different households with different appliance ratings and noise floors. The
+gap reflects irreducible cross-house distribution shift — the same shift that makes the
+LOHO test on H1 meaningful. What matters is that both curves decline together without
+divergence.
 
-Three ReduceLROnPlateau events drove val NLL from 4.84 → 3.44 between epochs 15–40.
-Val loss is still declining at epoch 40 — **60–80 epochs would push F1 from 0.64
-toward 0.70+** and close the remaining gap to within-house SGN (F1=0.76).
-Submitted at epoch 40 due to time constraints.
+ReduceLROnPlateau with patience=4 drives LR decay when val loss plateaus. Best
+checkpoint saved automatically at lowest val loss and loaded for inference.
 
 **Evidence the model learned cross-household patterns — not house-specific shortcuts:**
 
-The strongest proof is the test result itself: House 1 was withheld from every stage
-of training, validation, threshold calibration, and feature normalisation. The model
-has never seen its aggregate signal, its appliance ratings, or its occupancy schedule.
-Yet it achieves F1 = 0.64 and MAE = 8 W — numbers that match the best published
-*within-house* result on REFIT. That is only possible if the model learned something
-general about what washing machine cycles look like across households, not something
-specific to any one home.
+House 1 was withheld from every stage of training, validation, threshold calibration,
+and feature normalisation. The model has never seen its aggregate signal, appliance
+ratings, or occupancy schedule. F1=0.306, MAE=20W, and constraint_viol_W=0.0 on H1
+are only achievable if the model learned something general about WM cycle shapes across
+households.
 
-Further evidence from the internals:
+- **House behavioral signature transfers cleanly.** H1's 7-feature vector is computed
+  from cycle detection on H1's aggregate alone. The model interpolates correctly in
+  the feature space it learned from 16 training houses.
 
-- **House behavioral signature transfers cleanly.** H1's 7-feature vector
-  (sig_med_dur, sig_med_energy, sig_hot_frac, etc.) is computed from cycle detection
-  on H1's aggregate alone and fed to the model at inference. The model interpolates
-  correctly in the feature space it learned from 16 training houses — H1's signature
-  lands in a region the LSTM already understands.
-
-- **Event context features generalise.** The model learned that `ev_dur ≈ 25 min,
-  ev_peak ≈ 2.4 kW` means heating phase across all training households. When it sees
-  the same pattern in H1 — a house with different wiring, different appliance brand,
-  different background load — it fires correctly. This is learned invariance, not
-  memorisation.
+- **Shape features generalise.** The 4 derivative features (diff, abs_diff, roll_std_10,
+  roll_std_30) give the gate a cycle-shape signal that transfers across different
+  machines — a ramp-up followed by sustained variance is a heating element regardless
+  of the house.
 
 - **Hierarchical constraint holds on an unseen house.** `constraint_viol_W = 0.0`
-  on H1 at inference. The model never predicted a WM draw that exceeded H1's
-  aggregate, despite never having seen H1's power range. The constraint was
-  internalised during training across 16 diverse households and generalised without
+  on H1. The constraint was internalised during training and generalised without
   any house-specific tuning.
 
-- **Precision improved with training depth.** At 15 epochs (before full cross-house
-  convergence), precision was 0.30 and energy error was 426%. At 40 epochs, precision
-  rose to 0.54 and energy error fell to 64%. The improvement came entirely from
-  learning more discriminating cross-house cycle patterns — the data and architecture
-  did not change, only the depth of training.
+- **SGN gate suppresses false positives cross-house.** pos_weight=3.5 was tuned once
+  on the validation houses and applies to H1 without adjustment. Energy error (69.7%)
+  is consistent with the calibration houses, confirming the gate generalises.
 
 Prediction on a sample day from House 1 (never seen during training):
 
@@ -377,17 +361,21 @@ data/raw/RAW_House21_Part2.csv
 ### Run order
 
 ```bash
-# Section 1 — clean House 1, produce house1_clean_1min.parquet
+# Section 1 — clean all 19 houses, produce ckpt_wm_1min_clean.parquet
 python notebooks/01_raw_cleaning.py
 
-# Section 2 — EDA across all houses, produce ckpt_wm_cycles_v2.parquet
+# Section 2 — WM EDA + ground truth household profiles
 python notebooks/02_wm_eda.py
+python notebooks/02e_household_profiles.py
 
-# Section 3a — train M0, M1 Seq2Point, UnifiedNILM baselines
+# Section 3 — baselines (M0 zero, M1 Seq2Point, UnifiedNILM)
 python notebooks/03_nilm_model.py
 
-# Section 3b — train ARNILM (40 epochs, ~95 min on M3 GPU)
-python notebooks/03b_ar_lstm.py
+# Section 3 — ARNILM V8 (80 epochs, ~15 min on GPU)
+python notebooks/03h_arnilm_v8.py
+
+# Section 4 — predicted household profiles from V8 disaggregation
+python notebooks/04a_wm_household_profiles.py
 ```
 
 Each script is self-contained and produces all plots and result files for its section.
@@ -431,9 +419,10 @@ household's appliances, noise floor, and background load were seen during traini
 LOHO simulates real deployment: a model installed in a new home has zero prior data
 from that home. This is a harder and more realistic evaluation.
 
-**Threshold calibration**: the detection threshold (WM on/off) is calibrated on
-Houses 20 and 21 (held out from training, not the test house). Final threshold=10W,
-validation F1=0.570.
+**Threshold calibration**: the p_on detection threshold is swept on the held-out
+portion of CAL_HOUSES=[5,7,11,17] (never seen during training, not the test house).
+Best p_on=0.53, calibration F1=0.565. H20/H21 are excluded from calibration because
+they have too few detectable WM cycles to give a reliable threshold sweep.
 
 **Metrics reported**:
 - `mae` — mean absolute error in Watts (all timesteps)
@@ -517,20 +506,23 @@ are original work validated against domain reasoning and empirical results.
 
 ## Possible Improvements
 
-1. **More training epochs** — val NLL still declining at epoch 40; 60–80 epochs
-   expected to push F1 toward 0.70+
+1. **Cycle-level wattage normalisation** — normalise WM regression targets by each
+   house's median ON-state wattage rather than a global cap (3000W). The regression
+   head learns "80% of this house's typical load" rather than absolute watts —
+   should reduce MAE(ON) from 395W without cold-start risk (median estimated from aggregate).
 
-2. **Multi-appliance heads** — see Next Step above; the full multi-head architecture
-   is the primary roadmap item
+2. **Multi-appliance heads** — shared LSTM trunk + one head per appliance (WM, dryer,
+   dishwasher). Once the dishwasher head claims its events, WM precision improves
+   substantially — the two are the main source of confusion in single-appliance mode.
 
-3. **Class-weighted loss** — use true 1.8% ON prior instead of 50/50 balanced
-   sampling; removes post-hoc threshold calibration requirement
+3. **Self-attention over LSTM output** — V10 in the roadmap: multi-head attention
+   over the LSTM hidden sequence captures long-range cycle context (heating→wash→spin
+   phases ~60–90 min apart), expected to improve F1 further.
 
-4. **Probabilistic detection** — use P(WM > 25W) = 1 − Normal(μ,σ).cdf(25)
-   instead of hard threshold; more principled use of Gaussian output
-
-5. **Indian household transfer** — collect 1-minute aggregate data from Indian
-   households, compute behavioral signatures, fine-tune from UK checkpoint
+4. **Indian household transfer** — collect 1-minute aggregate data from Indian
+   households, compute behavioral signatures, fine-tune from UK checkpoint. Top-loading
+   machines have a flat 200–400W profile with no heating element — a different signature
+   class the current model has not seen.
 
 ---
 

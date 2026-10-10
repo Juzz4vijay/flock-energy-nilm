@@ -19,7 +19,20 @@ __pycache__/
 
 # macOS
 .DS_Store
+._*
+
+# Large data files
+*.parquet
+*.7z
+*.pkl
+*.xlsx
+*.pt
+data/clean/
+data/raw/
+
+# Assignment source files (not our work)
+CLEAN_README.md
+Flock_Energy_Data_Science_Take_Home_Assignment.pdf
 
 # Scratch / temp
 /private/tmp/
-*.log
