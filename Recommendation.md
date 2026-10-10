@@ -14,9 +14,10 @@ additional hardware required. The pipeline has four connected stages:
    aggregate) corrected; flat-line outages detected and flagged.
 2. **EDA and ground truth** — 6,369 WM cycles characterised across 19 households;
    per-household behavioural profiles derived from the sub-meter.
-3. **Disaggregation model** (ARNILM V8) — an autoregressive LSTM with a
+3. **Disaggregation model** (V8 LSTM + SGN gate) — a sequence-to-sequence LSTM with a
    multiplicative on/off gate, trained on 16 households and tested on a 17th it
-   never saw.
+   never saw. (No autoregressive feedback — previous WM predictions are not fed back
+   as inputs; the LSTM hidden state carries aggregate sequence context.)
 4. **Predicted profiles pipeline** — V8 inference applied to all 19 households to
    derive cycle-level profiles from the aggregate alone, with no sub-meter input.
 

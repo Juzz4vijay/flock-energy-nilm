@@ -160,8 +160,8 @@ Input (per timestep, 21 features):
   9  event context     = ev_active, ev_dur, ev_energy, ev_peak, since_ev,
                          sin_h, cos_h, sin_dow, cos_dow
   4  derivative/shape  = agg_diff, agg_abs_diff, agg_roll_std_10, agg_roll_std_30
-  7  house signature   = sig_med_dur, sig_med_energy, sig_hot_frac,
-                         sig_ph_sin, sig_ph_cos, sig_med_peak, sig_hot_frac²
+  7  house signature   = sig_med_dur, sig_med_energy, sig_agg_high_energy_frac,
+                         sig_ph_sin, sig_ph_cos, sig_med_peak, sig_agg_high_energy_frac²
 
 LSTM: 256 hidden, 2 layers, dropout=0.15
 Regression head: Linear(256→64) → ReLU → Linear(64→1) → Softplus → μ_raw ≥ 0

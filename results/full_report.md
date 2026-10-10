@@ -235,12 +235,15 @@ H19 is the structural outlier: 9% hot wash fraction against a household average 
 duration — confirming that the energy difference is the heating element, not
 cycle length.
 
-**Hot wash classification formula:**
+**Hot wash classification formula (sub-meter EDA — Section 2):**
 
 ```
 For each detected cycle c with energy E_c (Wh):
-  hot_wash(c) = 1  if E_c > threshold_hot
+  hot_wash(c) = 1  if E_c > threshold_hot    ← uses sub-meter WM channel
                0  otherwise
+
+In the aggregate-only model features, this becomes high_energy_event
+(same threshold, derived from aggregate cycles — cannot confirm WM attribution).
 
 where threshold_hot separates the bimodal energy distribution.
 The distribution is clearly bimodal: hot cycles cluster around 500–900 Wh,
@@ -298,11 +301,11 @@ much energy they use, what fraction are hot washes, when peak usage happens.
 ```
 sig_med_dur     = median(duration_min) / 180
 sig_med_energy  = median(energy_wh) / 800
-sig_hot_frac    = mean(hot_wash)
-sig_ph_sin      = sin(2π × peak_hour / 24)
-sig_ph_cos      = cos(2π × peak_hour / 24)
-sig_med_peak    = median(peak_w) / 3000
-sig_hot_frac²   = sig_hot_frac²    ← amplifies extreme households
+sig_agg_high_energy_frac  = mean(high_energy_event)   ← aggregate-only; cannot confirm WM hot-wash without sub-meter
+sig_ph_sin                = sin(2π × peak_hour / 24)
+sig_ph_cos                = cos(2π × peak_hour / 24)
+sig_med_peak              = median(peak_w) / 3000
+sig_agg_high_energy_frac² = sig_agg_high_energy_frac²  ← amplifies extreme households
 ```
 
 Normalisation denominators are grounded in the product research (Section 2): 180 min
@@ -368,30 +371,26 @@ information from any point in the past — the entire observed sequence is encod
 into a fixed-dimensional vector that evolves at each step. A WM cycle that started
 2 hours ago leaves a trace in h_t that persists through agitation and rinse.
 
-Additionally, we feed the previous WM prediction back as input at each step
-(autoregressive design):
+V8 is a sequence-to-sequence model: the LSTM reads aggregate context over time but does not feed previous WM predictions back as inputs (no teacher forcing, no autoregressive feedback loop).
 
 ```
-LSTM input at time t (ARNILM V8 — N_INPUT = 21):
-  [agg_t / 8000,                      ← normalised aggregate (1)
-   z_{t-1} / 3000,                    ← previous WM wattage (autoregressive)
-   p_on_{t-1},                        ← previous ON probability (autoregressive)
+LSTM input at time t (V8 — N_INPUT = 21):
+  [agg_t / 8000,                            ← normalised aggregate (1)
    ev_active_t, ev_dur_t, ev_energy_t,
-   ev_peak_t, since_ev_t,             ← event context (5)
+   ev_peak_t, since_ev_t,                   ← event context (5)
    hour_sin_t, hour_cos_t,
-   dow_sin_t, dow_cos_t,              ← temporal (4)
-   wm_on_lagged_t,                    ← lagged WM state indicator (1)
+   dow_sin_t, dow_cos_t,                    ← temporal (4)
+   agg_diff_t, agg_abs_diff_t,
+   agg_roll_std_10_t, agg_roll_std_30_t,   ← derivative/shape (4)
    sig_med_dur, sig_med_energy,
-   sig_hot_frac, sig_ph_sin,
+   sig_agg_high_energy_frac, sig_ph_sin,
    sig_ph_cos, sig_med_peak,
-   sig_hot_frac²]                     ← house signature (7)
+   sig_agg_high_energy_frac²]              ← house signature (7)
 
 Total: 21 inputs per timestep (1 agg + 13 dynamic + 7 static)
 ```
 
-During training, z_{t-1} uses ground truth from the sub-meter (teacher forcing).
-During inference, z_{t-1} uses the previous prediction — the model is autoregressive,
-each prediction conditioning on what it just predicted.
+The LSTM hidden state carries temporal context across the sequence; the 4 derivative features provide explicit transition signals. Previous WM power or ON probability are not inputs.
 
 **Output — SGN multiplicative gate:**
 
@@ -541,8 +540,8 @@ target for the V9 roadmap: cycle-level normalisation + attention head.
 
 ### Energy saving opportunity: shifting hot washes to cold
 
-The house behavioral signature feature `sig_hot_frac` directly identifies which
-households are high hot-wash users. Across REFIT:
+The house behavioral signature feature `sig_agg_high_energy_frac` identifies which
+households run predominantly high-energy aggregate cycles (a proxy for hot-wash users — derived from aggregate only, not confirmed sub-meter). Across REFIT:
 
 ```
 H7, H8, H16 → 98–99% hot wash → 526–808 Wh median per cycle
