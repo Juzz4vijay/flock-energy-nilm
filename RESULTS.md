@@ -82,6 +82,8 @@ has seen the household's specific appliance signatures, noise floor, and backgro
 load during training. LOHO simulates real deployment where the model encounters an
 entirely new household.
 
+**Single test house limitation**: evaluating on one held-out house (H1) is the strongest cross-house test this dataset structure supports — each house can only be left out once, and with 19 houses total there is no pool of multiple fully-unseen test houses. H1's characteristics (short 33-min cycles, 97% hot-wash, low prevalence 1.8%) may not be representative of all deployment scenarios. Per-house performance on the calibration houses (H5, H7, H11, H17) provides supplementary evidence but those were seen during threshold calibration. Multi-house held-out evaluation would require a larger dataset.
+
 **Training balance**: ON/OFF timesteps were balanced 50/50 during training (10,000
 each per house) to prevent the model learning to always predict zero (true prevalence
 is 1.8% ON). This creates a calibration mismatch addressed by threshold calibration

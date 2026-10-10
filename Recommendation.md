@@ -12,7 +12,7 @@ additional hardware required. The pipeline has four connected stages:
 
 1. **Data cleaning** — 11,124 physical impossibilities (appliance power exceeding
    aggregate) corrected; flat-line outages detected and flagged.
-2. **EDA and ground truth** — 6,369 WM cycles characterised across 19 households;
+2. **EDA and ground truth** — 6,776 WM cycles characterised across 19 households (Parts 1+2; 6,369 in Part 2 only, the period used for model training and evaluation);
    per-household behavioural profiles derived from the sub-meter.
 3. **Disaggregation model** (V8 LSTM + SGN gate) — a sequence-to-sequence LSTM with a
    multiplicative on/off gate, trained on 16 households and tested on a 17th it

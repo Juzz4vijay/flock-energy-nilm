@@ -109,7 +109,7 @@ duration, energy, and the hot-wash fraction that anchors the house behavioral si
 | H20 | 199 | Apr 2014–Jun 2015 | 93% | 70 min | 362 Wh |
 | H21 | 229 | Apr 2014–Jun 2015 | 92% | 82 min | 609 Wh |
 
-**Total: 6,369 cycles across 19 houses.**
+**Total: 6,369 cycles across 19 houses (Part 2 only, April 2014 onwards — the model training period. Full EDA including Part 1 gives 6,776 cycles.)**
 
 Key observations:
 - **H19 is the structural outlier**: 9% hot wash vs 90%+ average. Median energy 232 Wh vs

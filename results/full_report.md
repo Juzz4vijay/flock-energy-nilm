@@ -581,7 +581,7 @@ profile assignment) across all 19 REFIT houses gives the following fleet summary
 ```
 Metric                    Ground truth    V8 predicted    Gap
 ──────────────────────────────────────────────────────────────
-Total WM cycles (19 hh)   6,369           3,247           49% detected
+Total WM cycles (19 hh)   6,369 (Part 2)  3,247           49% detected
 Fleet annual saving (kWh) 2,483           1,752           30% underestimate
 Profile match (7 classes) —               7/19 exact      37% accuracy
 Heavy-hot households      11              2               9 downgraded
