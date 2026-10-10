@@ -147,24 +147,28 @@ def build_dyn_covariates(df_h):
     return np.concatenate([ev, temporal, deriv], axis=1)
 
 
-# ── Model (identical to V8) ────────────────────────────────────────────────────
+# ── Model (must match checkpoint — NILM_LSTM_V7 from 03h_arnilm_v8.py) ────────
 
-class ARNILM(nn.Module):
+class NILM_LSTM_V7(nn.Module):
     def __init__(self, n_input=N_INPUT, hidden=256, n_layers=2):
         super().__init__()
-        self.lstm = nn.LSTM(n_input, hidden, n_layers, batch_first=True, dropout=0.2)
-        self.reg_head = nn.Sequential(
-            nn.Linear(hidden, 64), nn.ReLU(), nn.Linear(64, 1), nn.Softplus())
+        self.lstm = nn.LSTM(n_input, hidden, n_layers,
+                            batch_first=True, dropout=0.15)
+        self.mu_head = nn.Sequential(
+            nn.Linear(hidden, 64), nn.ReLU(),
+            nn.Linear(64, 1), nn.Softplus())
         self.cls_head = nn.Sequential(
-            nn.Linear(hidden, 32), nn.ReLU(), nn.Linear(32, 1))
+            nn.Linear(hidden, 64), nn.ReLU(),
+            nn.Linear(64, 1))
 
     def forward(self, agg, dyn, sig, hidden=None):
+        B, T = agg.shape
         agg_n = (agg / MAX_AGG_W).unsqueeze(-1)
-        sig_e = sig.unsqueeze(1).expand(-1, agg.size(1), -1)
-        x = torch.cat([agg_n, dyn, sig_e], dim=-1)
-        h, hidden = self.lstm(x, hidden)
-        mu_raw    = self.reg_head(h).squeeze(-1)
-        cls_logit = self.cls_head(h).squeeze(-1)
+        sig_e = sig.unsqueeze(1).expand(-1, T, -1)
+        inp   = torch.cat([agg_n, dyn, sig_e], dim=-1)
+        out, hidden = self.lstm(inp, hidden)
+        mu_raw    = self.mu_head(out).squeeze(-1)
+        cls_logit = self.cls_head(out).squeeze(-1)
         p_on      = torch.sigmoid(cls_logit)
         y_hat     = mu_raw * MAX_WM_W * p_on
         return y_hat, p_on, cls_logit, hidden
@@ -181,7 +185,7 @@ wm_part2 = wm_all[wm_all.index >= PART2_START].copy()
 print(f'  Part2: {len(wm_part2):,} rows  |  {wm_part2["house"].nunique()} houses')
 
 print('\nLoading V8 checkpoint ...')
-model = ARNILM().to(DEVICE)
+model = NILM_LSTM_V7().to(DEVICE)
 model.load_state_dict(torch.load(CKPT_DIR / 'nilm_ar_lstm_v8.pt', map_location=DEVICE))
 model.eval()
 print('  Checkpoint loaded.')
