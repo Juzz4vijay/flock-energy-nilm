@@ -67,8 +67,11 @@ print(f'  Part2: {len(wm_part2):,} rows  |  {wm_part2["house"].nunique()} houses
 
 # ── House behavioral signatures (aggregate-only) ───────────────────────────────
 print('\nHouse behavioral signatures (aggregate-only) ...')
-SIG_COLS = ['sig_med_dur','sig_med_energy','sig_hot_frac',
-            'sig_ph_sin','sig_ph_cos','sig_med_peak','sig_hot_frac2']
+# Renamed: sig_hot_frac → sig_agg_high_energy_frac (derived from aggregate only;
+# cannot confirm these are WM hot-wash cycles without sub-meter)
+SIG_COLS = ['sig_med_dur', 'sig_med_energy', 'sig_agg_high_energy_frac',
+            'sig_ph_sin',  'sig_ph_cos',     'sig_med_peak',
+            'sig_agg_high_energy_frac2']
 
 def detect_agg_cycles(agg_series, thresh_on=80.0, thresh_off=25.0,
                       hyst_min=5, dur_min=15, dur_max=180, peak_min=400.0):
@@ -93,25 +96,26 @@ def detect_agg_cycles(agg_series, thresh_on=80.0, thresh_off=25.0,
                 dur = drop_start - ev_start
                 if dur_min <= dur <= dur_max and pk >= peak_min:
                     events.append(dict(duration_min=dur, energy_wh=cum_e, peak_w=pk,
-                                       hot_wash=(cum_e >= 350.0), hour_start=idx[ev_start].hour))
+                                       high_energy_event=(cum_e >= 350.0),
+                                       hour_start=idx[ev_start].hour))
                 state = 'IDLE'
     return pd.DataFrame(events) if events else pd.DataFrame(
-        columns=['duration_min','energy_wh','peak_w','hot_wash','hour_start'])
+        columns=['duration_min', 'energy_wh', 'peak_w', 'high_energy_event', 'hour_start'])
 
 def house_sig_from_agg(agg_series):
     cyc = detect_agg_cycles(agg_series)
     if len(cyc) < 3:
         return {c: 0.0 for c in SIG_COLS}
     ph = float(cyc['hour_start'].mode().iloc[0])
-    hot_frac = float(cyc['hot_wash'].mean())
+    high_e_frac = float(cyc['high_energy_event'].mean())
     return dict(
-        sig_med_dur    = float(cyc['duration_min'].median()) / 180.0,
-        sig_med_energy = float(cyc['energy_wh'].median())    / 800.0,
-        sig_hot_frac   = hot_frac,
-        sig_ph_sin     = float(np.sin(2 * np.pi * ph / 24)),
-        sig_ph_cos     = float(np.cos(2 * np.pi * ph / 24)),
-        sig_med_peak   = float(cyc['peak_w'].median()) / MAX_WM_W,
-        sig_hot_frac2  = hot_frac ** 2,
+        sig_med_dur                = float(cyc['duration_min'].median()) / 180.0,
+        sig_med_energy             = float(cyc['energy_wh'].median())    / 800.0,
+        sig_agg_high_energy_frac   = high_e_frac,
+        sig_ph_sin                 = float(np.sin(2 * np.pi * ph / 24)),
+        sig_ph_cos                 = float(np.cos(2 * np.pi * ph / 24)),
+        sig_med_peak               = float(cyc['peak_w'].median()) / MAX_WM_W,
+        sig_agg_high_energy_frac2  = high_e_frac ** 2,
     )
 
 house_sigs = {}
@@ -119,7 +123,7 @@ for h in sorted(wm_part2['house'].unique()):
     sub = wm_part2[wm_part2['house'] == h]
     house_sigs[h] = house_sig_from_agg(sub['Aggregate'])
     s = house_sigs[h]
-    print(f'  H{h:2d}  dur={s["sig_med_dur"]*180:.0f}min  hot={s["sig_hot_frac"]:.0%}  peak={s["sig_med_peak"]*MAX_WM_W:.0f}W')
+    print(f'  H{h:2d}  dur={s["sig_med_dur"]*180:.0f}min  high_e={s["sig_agg_high_energy_frac"]:.0%}  peak={s["sig_med_peak"]*MAX_WM_W:.0f}W')
 
 # ── Dynamic covariates (V7: +4 derivative/shape features) ─────────────────────
 # V6 had 9 dyn features: [ev_active, ev_dur, ev_energy, ev_peak, since_ev,

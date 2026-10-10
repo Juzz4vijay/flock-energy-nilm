@@ -18,12 +18,12 @@
 
 ---
 
-| F1 Score | vs Cross-House SOTA | Mean Abs. Error | Fleet Saving |
+| F1 Score | vs Cross-House Baseline | Mean Abs. Error | Fleet Saving |
 |:---:|:---:|:---:|:---:|
-| **0.306** | **1.8×** | **20 W** | **1,752 kWh/yr** |
-| House 1 · never seen in training | 0.306 vs 0.17 · 1-min vs 15-min | all timesteps · RMSE 119 W | predicted · 19 households |
+| **0.306** | **1.8× (directional)** | **20 W** | **1,752 kWh/yr** |
+| House 1 · never seen in training | different resolution/prep — see leaderboard | MAE > zero baseline (98.2% OFF — see below) | predicted · 19 households |
 
-One model trained on 16 houses, deployed cold to House 1 — no labels, no retraining. Exceeds the best published cross-house baseline by **80%** at finer resolution (1-min vs 15-min) under a stricter protocol.
+One model trained on 16 houses, deployed cold to House 1 — no labels, no retraining. **MAE note**: V8 MAE=20W exceeds the zero baseline (10W) because WM is OFF 98.2% of timesteps — predicting zero wins on MAE through class imbalance, but achieves F1=0 and 100% energy error. V8 trades some OFF-state accuracy for genuine appliance detection (F1=0.306) and substantially lower energy error (69.7% vs 100%). The cross-house F1 comparison is directional only: the published 0.17 baseline uses 15-min data and different preprocessing.
 
 ---
 
@@ -48,9 +48,11 @@ One model trained on 16 houses, deployed cold to House 1 — no labels, no retra
 
 ---
 
-## 🏆 Cross-House SOTA Leaderboard
+## 🏆 Cross-House Generalization Leaderboard
 
-> **Why cross-house is the only metric that matters for real deployment**
+> **Why cross-house generalization is the key deployment challenge**
+>
+> Note: protocol differences exist between entries (resolution, preprocessing, thresholds). The cross-house vs within-house distinction is meaningful; direct numeric comparison across entries should be treated as directional.
 
 Most published NILM models are trained and tested on the *same* household. That is a closed-loop experiment, not a product. ARNILM is designed around four properties that make it deployable at fleet scale from Day 1:
 
@@ -59,7 +61,7 @@ Most published NILM models are trained and tested on the *same* household. That 
 | **Scalability** | One model covers any number of new households — no per-house retraining pipeline, no growing model zoo |
 | **Cold-start solved** | 1–2 weeks of aggregate data → 7 behavioural features → immediate inference. No labelled appliance data ever required |
 | **Cross-household learning** | Patterns learned across 16 diverse UK houses generalise: cycle timing, load shape, hot-wash signatures transfer without fine-tuning |
-| **Single global model — all appliances** | The same LSTM trunk with per-appliance SGN heads can disaggregate washing machine, dryer, dishwasher and fridge simultaneously — one model, one deployment, one constraint budget |
+| **Single global model — all appliances** | The architecture is designed to extend to multi-appliance disaggregation through shared representations and per-appliance SGN heads — one trunk, one deployment, one constraint budget |
 
 The within-house numbers below (F1=0.42–0.76) are achieved by models that have already seen the test house. Deploy them to a new home and performance collapses. **ARNILM V8 has never seen House 1.**
 

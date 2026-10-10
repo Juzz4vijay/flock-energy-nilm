@@ -115,9 +115,15 @@ All models below use the hierarchically-corrected `ckpt_wm_1min_clean.parquet` d
 - **pos_weight=3.5** (reduced from 8.0): less recall bias → gate more conservative → 63% drop in energy error (185.7% → 69.7%)
 - **SGN multiplicative gate**: `ŷ = Softplus(μ) × MAX_WM_W × Sigmoid(cls_logit)` — output is naturally zero when off
 
-**Constraint_viol_W = 0.0 for all models**: the hierarchical constraint (WM ≤
-aggregate) is never violated, enforced by soft penalty in training loss and hard
-clip at inference.
+**Physical constraint (WM ≤ Aggregate)**: all reported `Constraint_viol_W = 0.0` values are post-clipping. The hard clip `preds = np.clip(preds, 0, agg)` at inference guarantees this. The V8 training loss includes a soft constraint penalty (`LAMBDA_CONSTR=0.1`) to encourage the model to learn the relationship; the cold-start evaluation script (`03h_arnilm_v8_coldstart_eval.py`) captures pre-clipping violation statistics separately:
+
+| | Before clipping | After clipping |
+|---|---:|---:|
+| Violation rate | see coldstart JSON | 0.00% |
+| Mean violation | see coldstart JSON | 0.0 W |
+| Max violation | see coldstart JSON | 0.0 W |
+
+Pre-clipping statistics are written to `results/section3/metrics_ar_lstm_v8_coldstart.json` and quantify how often the unconstrained model exceeds the aggregate bound, separating learned adherence from post-processing enforcement.
 
 ### Reading the results
 
