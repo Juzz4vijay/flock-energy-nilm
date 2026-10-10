@@ -146,7 +146,23 @@ Stage B2: Aggregate ≥ WM enforced *before* gap fill to prevent physically impo
 | UnifiedNILM | 38 W | 156 W | 0.118 | 293.0% |
 | **ARNILM V8** | **20 W** | **119 W** | **0.306** | **69.7%** |
 
-`WM ≤ Aggregate` constraint holds at every timestep — zero violations across all models.
+`WM ≤ Aggregate` constraint holds at every timestep — zero violations across all models (post-clipping; see cold-start section below for pre-clip statistics).
+
+**Cold-start evaluation — controlled A/B experiment:**
+
+In deployment, no sub-meter labels exist for a new household. V8 derives a 7-feature behavioral signature from aggregate data only. We tested how much information the signature needs:
+
+| Metric | Exp A: full-history sig | Exp B: 14-day cold-start | Δ |
+|---|:---:|:---:|:---:|
+| F1 | 0.332 | 0.337 | +0.005 |
+| Recall | 0.403 | 0.542 | +0.139 |
+| Precision | 0.282 | 0.244 | −0.038 |
+| MAE | 19.2 W | 19.8 W | +0.6 W |
+| Energy error | 48.9% | 63.2% | +14.3pp |
+
+Both experiments evaluated on identical timestamps (2014-04-15 → 2015-07-10, 650k timesteps). F1 is essentially unchanged (+0.005). Limiting the signature to 14 days shifts the recall/precision tradeoff but does not materially degrade detection. H7 secondary demo: even a zero signature (no cycles in first 14 days) costs only F1 0.051 (0.688 → 0.637).
+
+**Physical constraint violations (before hard clip):** rate=7.82%, mean among violating timesteps=0.26 W, max=416 W. Hard clip at inference guarantees zero violations in the final output.
 
 <details>
 <summary>V8b / V8c ablation experiments</summary>
