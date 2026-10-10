@@ -120,13 +120,13 @@ All models below use the hierarchically-corrected `ckpt_wm_1min_clean.parquet` d
 | | Before clipping | After clipping |
 |---|---:|---:|
 | Violation rate | 7.82% of timesteps | 0.00% |
-| Mean (all timesteps) | 0.022 W | 0.0 W |
-| Mean (violating only) | ~0.28 W | 0.0 W |
-| Max violation | 468 W | 0.0 W |
+| Mean (all timesteps) | 0.020 W | 0.0 W |
+| Mean (violating only) | 0.26 W | 0.0 W |
+| Max violation | 416 W | 0.0 W |
 
 The 0.022 W mean is averaged over all timesteps including those with zero violation; among the 7.82% of timesteps that do violate, the mean excess is approximately 0.28 W. This shows violations are generally small in magnitude. The 468 W max represents isolated tail events where the model fires a high-confidence WM prediction against a lower-than-usual aggregate reading. The soft constraint penalty in the training loss (`LAMBDA_CONSTR=0.1`) has taught the model near-adherence; hard clipping at inference guarantees the final output respects the bound in all cases.
 
-Note: these pre-clip statistics were recomputed after aligning the eval script's feature extraction with the training script (corrected `detect_agg_cycles` thresholds and `since_ev` normalisation). The updated numbers are in `results/section3/metrics_ar_lstm_v8_coldstart.json`.
+Note: the 0.020 W mean across all timesteps and 0.26 W mean among violating timesteps are both reported in `results/section3/metrics_ar_lstm_v8_coldstart.json`.
 
 ### Reading the results
 
@@ -154,25 +154,36 @@ off periods, directly reducing the false-positive energy integral.
 
 The original V8 evaluation used H1's full Part 2 aggregate history to compute its household signature (7 statistics capturing cycle duration, energy, peak power, and time-of-day preference). This is leakage: in deployment, only a calibration window of aggregate is available before inference begins.
 
-**Controlled A/B design**: both experiments evaluate on the same held-out period (post day-14), with identical model weights, dynamic features, and threshold. The only variable is the signature:
-- **Experiment A (control)**: full-history H1 signature
+**Controlled A/B design**: both experiments evaluate on the same held-out period (post day-14: 2014-04-15 → 2015-07-10, 650,157 timesteps), with identical model weights, dynamic features, and threshold. The only variable is the signature:
+- **Experiment A (control)**: full-history H1 aggregate signature
 - **Experiment B (cold-start)**: first 14-day aggregate only
 
 | Metric | Exp A: full-history sig | Exp B: 14-day cold-start |
 |---|---|---|
-| MAE | — | — |
-| RMSE | — | — |
-| MAE (ON) | — | — |
-| F1 | — | — |
-| Precision | — | — |
-| Recall | — | — |
-| Energy error | — | — |
+| MAE | 19.2 W | 19.8 W |
+| RMSE | 121 W | 121 W |
+| MAE (ON) | 425 W | 408 W |
+| F1 | 0.332 | 0.337 |
+| Precision | 0.282 | 0.244 |
+| Recall | 0.403 | 0.542 |
+| Energy error | 48.9% | 63.2% |
 
-*Results pending re-run with corrected feature extraction (see `results/section3/metrics_ar_lstm_v8_coldstart.json` once updated).*
+The F1 gap between experiments is 0.005 — negligible. Restricting the signature to 14 days shifts the operating point toward higher recall (0.542 vs 0.403) at lower precision (0.244 vs 0.282), but overall detection quality is nearly identical. This confirms that the static household signature provides modest context; the LSTM's dynamic features (rolling std, event context, temporal embedding) are the primary detection mechanism.
 
-**Feature extraction correction**: the first cold-start eval run used `thresh_on=300W` in `detect_agg_cycles` while the training script uses `thresh_on=80W`. The `since_ev` normalisation also differed. Both are now aligned. Results above will be replaced once the corrected eval runs on the pod.
+The energy error increase (49% → 63%) reflects the recall shift: more detections, including more false positives at high wattage, inflate the energy integral. For an energy-advisory product this is the main limitation of the cold-start regime.
 
-**H7 secondary demonstration** (pending re-run with corrected features — see `metrics_ar_lstm_v8_coldstart_h7demo.json`).
+**H7 secondary demonstration**: H7 has clean Part 2 labels, 869 WM cycles, 98% hot-wash. Its first 14 days of Part 2 contain no detectable cycles (zero signature). Comparing full-history vs zero cold-start signature on H7's last 4 weeks:
+
+| Metric | Full-history sig | 14-day cold-start (zero sig) |
+|---|---|---|
+| MAE | 24.1 W | 23.9 W |
+| F1 | 0.688 | 0.637 |
+| MAE (ON) | 189 W | 200 W |
+| Energy error | 21.6% | 9.9% |
+
+F1 drops 0.051 from full-history to zero signature — the model degrades gracefully. The energy error is actually lower with the zero signature (9.9% vs 21.6%) because without a signature to amplify high-energy events, the model produces fewer high-wattage false positives.
+
+Full results: `results/section3/metrics_ar_lstm_v8_coldstart.json`, `metrics_ar_lstm_v8_coldstart_h7demo.json`.
 
 ### Training dynamics (V8)
 

@@ -1,9 +1,9 @@
 {
   "full_sig": {
-    "mae": 22.99,
-    "f1": 0.698,
-    "mae_on": 183.1,
-    "energy_err": 18.0
+    "mae": 24.06,
+    "f1": 0.688,
+    "mae_on": 189.0,
+    "energy_err": 21.6
   },
   "coldstart_sig": {
     "mae": 23.87,
