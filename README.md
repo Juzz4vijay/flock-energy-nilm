@@ -1,6 +1,6 @@
 <div align="center">
 
-# REFIT Energy Disaggregation — ARNILM
+# REFIT Energy Disaggregation — NILM-LSTM
 
 **Vijay Rameshkumar**
 
@@ -54,7 +54,7 @@ One model trained on 16 houses, deployed cold to House 1 — no labels, no retra
 >
 > Note: protocol differences exist between entries (resolution, preprocessing, thresholds). The cross-house vs within-house distinction is meaningful; direct numeric comparison across entries should be treated as directional.
 
-Most published NILM models are trained and tested on the *same* household. That is a closed-loop experiment, not a product. ARNILM is designed around four properties that make it deployable at fleet scale from Day 1:
+Most published NILM models are trained and tested on the *same* household. That is a closed-loop experiment, not a product. The V8 model (LSTM + SGN gate, referred to as ARNILM in earlier versions — note: "AR" here means the LSTM reads sequence context over time, not that previous appliance predictions are fed back as input) is designed around four properties that make it deployable at fleet scale from Day 1:
 
 | Property | What it means |
 |---|---|

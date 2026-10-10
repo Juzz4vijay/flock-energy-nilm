@@ -172,7 +172,7 @@ The F1 gap between experiments is 0.005 — negligible. Restricting the signatur
 
 The energy error increase (49% → 63%) reflects the recall shift: more detections, including more false positives at high wattage, inflate the energy integral. For an energy-advisory product this is the main limitation of the cold-start regime.
 
-**H7 secondary demonstration**: H7 has clean Part 2 labels, 869 WM cycles, 98% hot-wash. Its first 14 days of Part 2 contain no detectable cycles (zero signature). Comparing full-history vs zero cold-start signature on H7's last 4 weeks:
+**H7 signature sensitivity experiment (within-house temporal holdout)**: H7 is a *training* house — this experiment measures sensitivity to signature quality, not cold-start generalisation to an unseen household. H7 has clean Part 2 labels, 869 WM cycles, 98% hot-wash. Its first 14 days of Part 2 contain no detectable cycles (zero signature). Comparing full-history vs zero cold-start signature on H7's last 4 weeks (held out from training sequences):
 
 | Metric | Full-history sig | 14-day cold-start (zero sig) |
 |---|---|---|
@@ -181,7 +181,9 @@ The energy error increase (49% → 63%) reflects the recall shift: more detectio
 | MAE (ON) | 189 W | 200 W |
 | Energy error | 21.6% | 9.9% |
 
-F1 drops 0.051 from full-history to zero signature — the model degrades gracefully. The energy error is actually lower with the zero signature (9.9% vs 21.6%) because without a signature to amplify high-energy events, the model produces fewer high-wattage false positives.
+F1 drops 0.051 from full-history to zero signature. The model degrades gracefully because the LSTM's dynamic features remain available; only the static signature is weakened. Do not interpret this as cross-house evidence — H7 is known to the model.
+
+**Known limitation — training/inference signature distribution shift**: V8 training houses all use full-history signatures (300–900 cycles), while a cold-start deployment supplies a 14-day signature (possibly zero cycles). The model has not been trained to handle short-history signatures for houses it knows. The H1 eval shows this causes minimal F1 degradation (0.005) in practice, likely because the dynamic features dominate. The principled fix is to simulate cold-start during training: for each training house, sample a random 14-day aggregate window, derive its signature from that window only, and train on the resulting signature. This would narrow the train/eval distribution gap. This is targeted for the next model version (V9).
 
 Full results: `results/section3/metrics_ar_lstm_v8_coldstart.json`, `metrics_ar_lstm_v8_coldstart_h7demo.json`.
 

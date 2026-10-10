@@ -239,14 +239,32 @@ agg_eval = h1_eval['Aggregate'].values.astype(np.float32)
 wm_eval  = h1_eval['WM'].values.astype(np.float32)
 dyn_eval = build_dyn_covariates(h1_eval)
 
-# ── Inference helper ──────────────────────────────────────────────────────────
+# Calibration window data — fed through LSTM for warm-up (no labels used)
+agg_cal = h1_cal_sub['Aggregate'].values.astype(np.float32)
+dyn_cal = build_dyn_covariates(h1_cal_sub)
+
+# ── Inference helper with LSTM warm-up ────────────────────────────────────────
+# Both experiments warm up using the same 14-day calibration window, so the
+# LSTM hidden state at eval-window start is matched. The only variable between
+# Exp A and B is the static household signature.
 
 def infer_h1(sig_dict, label, chunk=10000):
     sig_vec = np.array([sig_dict[c] for c in SIG_COLS], dtype=np.float32)
+    # Warm-up: process calibration window to build LSTM context
+    hidden = None
+    with torch.no_grad():
+        for s in range(0, len(agg_cal), chunk):
+            e  = min(s + chunk, len(agg_cal))
+            ac = torch.FloatTensor(agg_cal[s:e]).unsqueeze(0).to(DEVICE)
+            dc = torch.FloatTensor(dyn_cal[s:e]).unsqueeze(0).to(DEVICE)
+            sc = torch.FloatTensor(sig_vec).unsqueeze(0).to(DEVICE)
+            _, _, _, hidden = model(ac, dc, sc, hidden)
+            hidden = tuple(hh.detach() for hh in hidden)
+    print(f'  [{label}] warm-up done ({len(agg_cal):,} timesteps). Running eval ...')
+    # Eval: carry warm-up hidden state into the scored window
     T_ = len(agg_eval)
     preds_raw_ = np.zeros(T_, np.float32)
     p_ons_     = np.zeros(T_, np.float32)
-    hidden = None
     with torch.no_grad():
         for s in range(0, T_, chunk):
             e  = min(s + chunk, T_)
@@ -260,7 +278,7 @@ def infer_h1(sig_dict, label, chunk=10000):
     print(f'  [{label}] inference done.')
     return preds_raw_, p_ons_
 
-print(f'\nRunning controlled A/B inference on H1 eval window ...')
+print(f'\nRunning controlled A/B inference on H1 eval window (with LSTM warm-up) ...')
 preds_raw_full, pons_full = infer_h1(sig_h1_full, 'Exp A: full-history sig')
 preds_raw_cold, pons_cold = infer_h1(sig_h1_cold, 'Exp B: 14-day cold-start sig')
 
@@ -340,17 +358,20 @@ out = RES_DIR / 'metrics_ar_lstm_v8_coldstart.json'
 out.write_text(json.dumps(results, indent=2))
 print(f'\nH1 results saved → {out}')
 
-# ── Secondary cold-start demo: H7 (clean Part 2 data, 869 cycles) ─────────────
-# H7 is a training house so the model has seen its appliance signatures.
-# We use the LAST 4 weeks (calibration window, held out from training sequences)
-# as the eval period. We compare:
-#   A) full-history H7 signature → inference on last 4 weeks
-#   B) 14-day cold-start H7 signature → same eval window
-# This demonstrates the signature quality penalty independent of H1's data issues.
+# ── H7 signature sensitivity experiment (within-house temporal holdout) ───────
+# H7 is a TRAINING house — this is NOT an unseen-household cold-start test.
+# It is a within-house temporal holdout: training sequences exclude the last 4
+# weeks; the model has seen H7's aggregate patterns but not this exact period.
+# Purpose: isolate the effect of signature quality by comparing full-history
+# vs 14-day signature on identical timestamps. H7 has clean Part 2 labels
+# (869 cycles, 98% hot-wash) making it a reliable sensitivity benchmark.
+# Do not use H7's result as evidence of cross-house cold-start generalisation;
+# that evidence comes from H1 only.
 
 print('\n' + '='*72)
-print('Secondary demo: H7 cold-start signature vs full-history signature')
-print('(H7 has clean Part 2 labels, 869 cycles, 98% hot-wash)')
+print('H7 signature sensitivity experiment (within-house temporal holdout)')
+print('NOTE: H7 is a training house — this measures signature sensitivity,')
+print('      not cold-start generalisation to an unseen household.')
 print('='*72)
 
 H7 = 7
