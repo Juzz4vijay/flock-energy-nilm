@@ -34,9 +34,24 @@ All model training uses Part 2 only.
 | Impossible IAM readings (> 4,000W) | 3,350 |
 | Aggregate clamp spikes removed | 45+ |
 | 1-min bins after resample | 920,031 |
-| Short gaps filled (≤ 30 min, linear) | 349 gaps |
-| SARIMA-imputed (30 min – 24 h) | 1,862 minutes |
-| Outages flagged (> 24 h, not filled) | 12 gaps, 1,845 hours total |
+| Short gaps filled (≤ 30 min, linear) | 4,230 bins |
+| SARIMA-imputed (30 min – 24 h) | 1,862 bins |
+| Outage rows flagged (> 24 h) | 110,705 bins (~77 days) |
+| Flatline suspect rows | 114,415 bins |
+| WM Appliance5 ON timesteps (>10W) | 16,265 (1.77% of total) |
+
+## Cycle Detection Summary — 19 Houses
+
+| Metric | Value |
+|---|---|
+| Total WM cycles detected (all 19 houses) | 6,776 |
+| Houses with cycles | 19 (H1–H21 excluding H12, H14) |
+| Hot-wash fraction (fleet average) | 87.4% |
+| Median cycle duration | 66 min |
+| Median cycle energy | 502 Wh |
+| Cycle duration bounds (product-spec grounded) | 15 min – 180 min |
+| Hot-wash threshold (GT) | 350 Wh |
+| Hot-wash threshold (calibrated for V8 underestimate) | 280 Wh |
 
 ---
 
@@ -135,6 +150,18 @@ Part 1 data is used in the Section 1 cleaning analysis and the before/after
 visualisation to demonstrate the cleaning pipeline, but not for model training.
 
 ---
+
+## Model Data Split — LOHO Evaluation
+
+| Split | Houses | Purpose |
+|---|---|---|
+| Train | H2, H3, H4, H5, H6, H7, H8, H9, H10, H11, H13, H15, H16, H17, H18, H19 | Model training (16 houses) |
+| Validation | H20, H21 | Early stopping / checkpoint selection |
+| Calibration | H5, H7, H11, H17 (held-out portion) | p_on threshold optimisation (0.53) |
+| Test | H1 | Final evaluation — **never seen during training** |
+
+ARNILM V8 best checkpoint: epoch 15 (val_loss=0.1846).
+Test set results: MAE=20W, F1=0.306, MAE(ON)=395W, Energy_err=69.7%.
 
 ## Remaining Concerns
 
