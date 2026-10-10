@@ -55,8 +55,11 @@ SIG_COLS = ['sig_med_dur', 'sig_med_energy', 'sig_agg_high_energy_frac',
             'sig_agg_high_energy_frac2']
 N_DYN = 13; N_STATIC = 7; N_INPUT = 1 + N_DYN + N_STATIC  # 21
 
-def detect_agg_cycles(agg, thresh_on=300.0, thresh_off=80.0,
-                      dur_min=15, dur_max=180, peak_min=400.0, hyst_min=5):
+def detect_agg_cycles(agg_series, thresh_on=80.0, thresh_off=25.0,
+                      hyst_min=5, dur_min=15, dur_max=180, peak_min=400.0):
+    """Identical to 03h_arnilm_v8.py — thresholds and index usage must not diverge."""
+    agg = agg_series.values.astype(np.float32)
+    idx = agg_series.index
     events = []
     state = 'IDLE'; ev_start = 0; drop_start = 0; cum_e = 0.0; pk = 0.0
     for i in range(len(agg)):
@@ -75,11 +78,9 @@ def detect_agg_cycles(agg, thresh_on=300.0, thresh_off=80.0,
             elif (i - drop_start) >= hyst_min:
                 dur = drop_start - ev_start
                 if dur_min <= dur <= dur_max and pk >= peak_min:
-                    events.append(dict(
-                        duration_min=dur, energy_wh=cum_e, peak_w=pk,
-                        # renamed: high_energy_event replaces hot_wash
-                        high_energy_event=(cum_e >= 350.0),
-                        hour_start=i // 60 % 24))
+                    events.append(dict(duration_min=dur, energy_wh=cum_e, peak_w=pk,
+                                       high_energy_event=(cum_e >= 350.0),
+                                       hour_start=idx[ev_start].hour))
                 state = 'IDLE'
     return pd.DataFrame(events) if events else pd.DataFrame(
         columns=['duration_min', 'energy_wh', 'peak_w', 'high_energy_event', 'hour_start'])
@@ -87,7 +88,7 @@ def detect_agg_cycles(agg, thresh_on=300.0, thresh_off=80.0,
 
 def house_sig_from_agg(agg_series):
     """Compute aggregate-event behavioral signature from agg_series only."""
-    cyc = detect_agg_cycles(agg_series.values)
+    cyc = detect_agg_cycles(agg_series)  # pass Series — needed for timestamp-based hour_start
     if len(cyc) < 3:
         return {c: 0.0 for c in SIG_COLS}
     ph = float(cyc['hour_start'].mode().iloc[0])
@@ -121,7 +122,8 @@ def detect_events(agg_vals, thresh=80.0):
         else:
             if in_ev:
                 in_ev = False; last_end = i
-            since_ev[i] = float(i - last_end) / (24 * 60) if last_end >= 0 else 1.0
+            if last_end >= 0:
+                since_ev[i] = min(float(i - last_end), 240.0) / 240.0
     return np.stack([ev_active, ev_dur, ev_energy, ev_peak, since_ev], axis=1)
 
 
@@ -194,131 +196,143 @@ config = json.loads((CKPT_DIR / 'nilm_ar_lstm_v8_config.json').read_text())
 P_ON_THRESHOLD = config['p_on_threshold']
 print(f'  p_on threshold (from training calibration): {P_ON_THRESHOLD}')
 
-# ── Build training-house signatures (unchanged — full Part 2 is correct for them) ──
+# ── House signatures ──────────────────────────────────────────────────────────
+# Training houses: full Part 2 history (correct — they have sub-meter labels).
+# H1 (test house): two signatures computed for the controlled A/B comparison:
+#   sig_full  = full Part 2 history (control)
+#   sig_cold  = first COLDSTART_DAYS only (cold-start deployment simulation)
+# Both are evaluated on the SAME held-out period (post day-14) so the only
+# variable between experiments A and B is the signature, not the eval window.
 
 print('\nComputing house signatures ...')
 house_sigs = {}
 for h in sorted(wm_part2['house'].unique()):
     sub = wm_part2[wm_part2['house'] == h]
-    if h == TEST_HOUSE:
-        # COLD-START FIX: use only the first COLDSTART_DAYS days for H1 signature
-        h1_start = sub.index[0]
-        h1_cal_end = h1_start + pd.Timedelta(days=COLDSTART_DAYS)
-        cal_sub = sub[sub.index < h1_cal_end]
-        house_sigs[h] = house_sig_from_agg(cal_sub['Aggregate'])
-        print(f'  H{h:2d} [COLD-START]: sig from {h1_start.date()} to {h1_cal_end.date()} '
-              f'({len(cal_sub):,} rows = {COLDSTART_DAYS} days)')
-    else:
-        house_sigs[h] = house_sig_from_agg(sub['Aggregate'])
+    house_sigs[h] = house_sig_from_agg(sub['Aggregate'])
 
-# ── Build H1 eval data (post-calibration window only) ─────────────────────────
-
-h1_sub = wm_part2[wm_part2['house'] == TEST_HOUSE]
+h1_sub   = wm_part2[wm_part2['house'] == TEST_HOUSE]
 h1_start = h1_sub.index[0]
 h1_eval_start = h1_start + pd.Timedelta(days=COLDSTART_DAYS)
-h1_eval = h1_sub[h1_sub.index >= h1_eval_start]
 
+# Full-history H1 signature (control — Experiment A)
+sig_h1_full = house_sigs[TEST_HOUSE]
+
+# 14-day cold-start H1 signature (Experiment B)
+h1_cal_sub  = h1_sub[h1_sub.index < h1_eval_start]
+sig_h1_cold = house_sig_from_agg(h1_cal_sub['Aggregate'])
+
+print(f'  H1 full-history sig: dur={sig_h1_full["sig_med_dur"]*180:.0f}min  '
+      f'high_e={sig_h1_full["sig_agg_high_energy_frac"]:.0%}  '
+      f'peak={sig_h1_full["sig_med_peak"]*MAX_WM_W:.0f}W')
+print(f'  H1 14-day cold-start: dur={sig_h1_cold["sig_med_dur"]*180:.0f}min  '
+      f'high_e={sig_h1_cold["sig_agg_high_energy_frac"]:.0%}  '
+      f'peak={sig_h1_cold["sig_med_peak"]*MAX_WM_W:.0f}W')
+
+# ── H1 eval window (identical for both experiments) ───────────────────────────
+
+h1_eval = h1_sub[h1_sub.index >= h1_eval_start]
 print(f'\nH1 eval window: {h1_eval_start.date()} → {h1_sub.index[-1].date()} '
-      f'({len(h1_eval):,} timesteps)')
-print(f'  (Full Part2: {len(h1_sub):,}  |  Excluded first {COLDSTART_DAYS} days for cold-start: '
-      f'{len(h1_sub) - len(h1_eval):,})')
+      f'({len(h1_eval):,} timesteps = {len(h1_eval)/60/24:.1f} days)')
+print(f'  Excluded first {COLDSTART_DAYS} days ({len(h1_cal_sub):,} rows) from scoring in both experiments.')
 
 agg_eval = h1_eval['Aggregate'].values.astype(np.float32)
 wm_eval  = h1_eval['WM'].values.astype(np.float32)
 dyn_eval = build_dyn_covariates(h1_eval)
-sig_eval  = np.array([house_sigs[TEST_HOUSE][c] for c in SIG_COLS], dtype=np.float32)
 
-# ── Inference ─────────────────────────────────────────────────────────────────
+# ── Inference helper ──────────────────────────────────────────────────────────
 
-print('\nRunning inference on H1 eval window ...')
-chunk = 10000
-T = len(agg_eval)
-preds_raw = np.zeros(T, np.float32)   # before clip — for constraint violation stats
-p_ons     = np.zeros(T, np.float32)
-hidden = None
-with torch.no_grad():
-    for s in range(0, T, chunk):
-        e   = min(s + chunk, T)
-        ac  = torch.FloatTensor(agg_eval[s:e]).unsqueeze(0).to(DEVICE)
-        dc  = torch.FloatTensor(dyn_eval[s:e]).unsqueeze(0).to(DEVICE)
-        sc  = torch.FloatTensor(sig_eval).unsqueeze(0).to(DEVICE)
-        yh, po, _, hidden = model(ac, dc, sc, hidden)
-        preds_raw[s:e] = yh[0].cpu().numpy()
-        p_ons[s:e]     = po[0].cpu().numpy()
-        hidden = tuple(hh.detach() for hh in hidden)
+def infer_h1(sig_dict, label, chunk=10000):
+    sig_vec = np.array([sig_dict[c] for c in SIG_COLS], dtype=np.float32)
+    T_ = len(agg_eval)
+    preds_raw_ = np.zeros(T_, np.float32)
+    p_ons_     = np.zeros(T_, np.float32)
+    hidden = None
+    with torch.no_grad():
+        for s in range(0, T_, chunk):
+            e  = min(s + chunk, T_)
+            ac = torch.FloatTensor(agg_eval[s:e]).unsqueeze(0).to(DEVICE)
+            dc = torch.FloatTensor(dyn_eval[s:e]).unsqueeze(0).to(DEVICE)
+            sc = torch.FloatTensor(sig_vec).unsqueeze(0).to(DEVICE)
+            yh, po, _, hidden = model(ac, dc, sc, hidden)
+            preds_raw_[s:e] = yh[0].cpu().numpy()
+            p_ons_[s:e]     = po[0].cpu().numpy()
+            hidden = tuple(hh.detach() for hh in hidden)
+    print(f'  [{label}] inference done.')
+    return preds_raw_, p_ons_
 
-# Constraint violations — measure BEFORE clipping
-violations = np.clip(preds_raw - agg_eval, 0, None)
+print(f'\nRunning controlled A/B inference on H1 eval window ...')
+preds_raw_full, pons_full = infer_h1(sig_h1_full, 'Exp A: full-history sig')
+preds_raw_cold, pons_cold = infer_h1(sig_h1_cold, 'Exp B: 14-day cold-start sig')
+
+# Constraint violations — measure BEFORE clipping (cold-start experiment)
+violations = np.clip(preds_raw_cold - agg_eval, 0, None)
 viol_rate  = float((violations > 0).mean() * 100)
 viol_mean  = float(violations.mean())
 viol_max   = float(violations.max())
+viol_mean_among_violating = viol_mean / (viol_rate / 100) if viol_rate > 0 else 0.0
 
-preds_clipped = np.clip(preds_raw, 0, agg_eval)   # hard constraint
+preds_full_clipped = np.clip(preds_raw_full, 0, agg_eval)
+preds_cold_clipped = np.clip(preds_raw_cold, 0, agg_eval)
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 
-true_on  = (wm_eval >= ON_THRESH_W).astype(int)
-pred_on  = (p_ons >= P_ON_THRESHOLD).astype(int)
+def compute_metrics(preds, p_ons_, wm_gt, threshold):
+    true_on = (wm_gt >= ON_THRESH_W).astype(int)
+    pred_on = (p_ons_ >= threshold).astype(int)
+    mae_    = float(np.mean(np.abs(preds - wm_gt)))
+    rmse_   = float(np.sqrt(np.mean((preds - wm_gt) ** 2)))
+    on_m    = true_on == 1
+    mae_on_ = float(np.mean(np.abs(preds[on_m] - wm_gt[on_m]))) if on_m.sum() > 0 else float('nan')
+    f1_     = float(f1_score(true_on, pred_on, zero_division=0))
+    prec_   = float(precision_score(true_on, pred_on, zero_division=0))
+    rec_    = float(recall_score(true_on, pred_on, zero_division=0))
+    true_kwh_ = float(wm_gt.sum() / 60000)
+    pred_kwh_ = float(preds.sum() / 60000)
+    ee_     = abs(pred_kwh_ - true_kwh_) / max(true_kwh_, 1e-6) * 100
+    return dict(mae=round(mae_,2), rmse=round(rmse_,2), mae_on=round(mae_on_,2),
+                f1=round(f1_,4), precision=round(prec_,4), recall=round(rec_,4),
+                energy_err_pct=round(ee_,1))
 
-mae      = float(np.mean(np.abs(preds_clipped - wm_eval)))
-rmse     = float(np.sqrt(np.mean((preds_clipped - wm_eval)**2)))
-on_mask  = true_on == 1
-mae_on   = float(np.mean(np.abs(preds_clipped[on_mask] - wm_eval[on_mask]))) if on_mask.sum() > 0 else float('nan')
-f1       = float(f1_score(true_on, pred_on, zero_division=0))
-prec     = float(precision_score(true_on, pred_on, zero_division=0))
-rec      = float(recall_score(true_on, pred_on, zero_division=0))
-true_kwh = float(wm_eval.sum() / 60000)
-pred_kwh = float(preds_clipped.sum() / 60000)
-energy_err = abs(pred_kwh - true_kwh) / max(true_kwh, 1e-6) * 100
+m_full = compute_metrics(preds_full_clipped, pons_full, wm_eval, P_ON_THRESHOLD)
+m_cold = compute_metrics(preds_cold_clipped, pons_cold, wm_eval, P_ON_THRESHOLD)
 
 # ── Report ────────────────────────────────────────────────────────────────────
 
 print('\n' + '='*72)
-print('ARNILM V8 — Cold-start corrected evaluation (14-day signature)')
+print('ARNILM V8 — Controlled A/B cold-start comparison')
+print('Both experiments evaluated on identical timestamps (post-14-day window)')
 print('='*72)
-print(f'  Cold-start window:  {COLDSTART_DAYS} days of aggregate only')
-print(f'  Eval timesteps:     {T:,}  ({T/60/24:.1f} days)')
-print(f'  WM ON fraction:     {true_on.mean()*100:.2f}%')
+print(f'  Eval window: {h1_eval_start.date()} → {h1_sub.index[-1].date()}  '
+      f'({len(h1_eval):,} timesteps = {len(h1_eval)/60/24:.1f} days)')
+print(f'  WM ON fraction: {(wm_eval >= ON_THRESH_W).mean()*100:.2f}%')
 print()
-print(f'  MAE:            {mae:.2f} W          [V8 full-period: 20.0 W]')
-print(f'  RMSE:           {rmse:.2f} W         [V8 full-period: 119 W]')
-print(f'  MAE (ON):       {mae_on:.2f} W        [V8 full-period: 395 W]')
-print(f'  F1:             {f1:.4f}             [V8 full-period: 0.306]')
-print(f'  Precision:      {prec:.4f}')
-print(f'  Recall:         {rec:.4f}')
-print(f'  Energy error:   {energy_err:.1f}%          [V8 full-period: 69.7%]')
+w = 24
+print(f'  {"Metric":<{w}} {"Exp A: full-history sig":<{w}} {"Exp B: 14-day cold-start"}')
+print(f'  {"-"*70}')
+for k, label in [('mae','MAE'), ('rmse','RMSE'), ('mae_on','MAE (ON)'),
+                 ('f1','F1'), ('precision','Precision'), ('recall','Recall'),
+                 ('energy_err_pct','Energy error %')]:
+    print(f'  {label:<{w}} {str(m_full[k]):<{w}} {m_cold[k]}')
 print()
-print('  Physical constraint violations (WM > Aggregate):')
-print(f'    Before clipping:  rate={viol_rate:.2f}%  mean={viol_mean:.3f} W  max={viol_max:.1f} W')
-print(f'    After clipping:   rate=0.00%  mean=0.000 W  max=0.0 W')
+print('  Physical constraint violations (cold-start, before clipping):')
+print(f'    Rate:             {viol_rate:.2f}% of timesteps')
+print(f'    Mean (all ts):    {viol_mean:.4f} W')
+print(f'    Mean (violating): {viol_mean_among_violating:.2f} W')
+print(f'    Max:              {viol_max:.1f} W')
+print(f'    After clipping:   0.00% / 0.0 W')
 print('='*72)
-
-# Side-by-side comparison table
-print('\nComparison: original evaluation vs 14-day cold-start corrected')
-print(f'  {"Metric":<20} {"V8 (full-period)":<22} {"V8 (14-day cold-start)"}')
-print(f'  {"-"*62}')
-print(f'  {"MAE":<20} {"20.0 W":<22} {mae:.1f} W')
-print(f'  {"RMSE":<20} {"119 W":<22} {rmse:.0f} W')
-print(f'  {"MAE (ON)":<20} {"395 W":<22} {mae_on:.0f} W')
-print(f'  {"F1":<20} {"0.306":<22} {f1:.3f}')
-print(f'  {"Precision":<20} {"0.358":<22} {prec:.3f}')
-print(f'  {"Recall":<20} {"0.267":<22} {rec:.3f}')
-print(f'  {"Energy error":<20} {"69.7%":<22} {energy_err:.1f}%')
 
 results = {
     'model': 'ARNILM_V8_coldstart14d',
     'test_house': TEST_HOUSE,
     'coldstart_days': COLDSTART_DAYS,
-    'eval_timesteps': T,
-    'mae': round(mae, 2),
-    'rmse': round(rmse, 2),
-    'mae_on': round(mae_on, 2),
-    'f1': round(f1, 4),
-    'precision': round(prec, 4),
-    'recall': round(rec, 4),
-    'energy_err_pct': round(energy_err, 1),
+    'eval_window_start': str(h1_eval_start.date()),
+    'eval_timesteps': len(h1_eval),
+    'experiment_A_full_history_sig': m_full,
+    'experiment_B_coldstart_14d_sig': m_cold,
     'constraint_viol_rate_pct_before_clip': round(viol_rate, 4),
-    'constraint_viol_mean_W_before_clip': round(viol_mean, 4),
+    'constraint_viol_mean_all_ts_W': round(viol_mean, 4),
+    'constraint_viol_mean_violating_W': round(viol_mean_among_violating, 2),
     'constraint_viol_max_W_before_clip': round(viol_max, 2),
     'constraint_viol_after_clip': 0.0,
 }

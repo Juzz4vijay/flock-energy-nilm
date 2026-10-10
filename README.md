@@ -59,7 +59,7 @@ Most published NILM models are trained and tested on the *same* household. That 
 | Property | What it means |
 |---|---|
 | **Scalability** | One model covers any number of new households — no per-house retraining pipeline, no growing model zoo |
-| **Cold-start solved** | 1–2 weeks of aggregate data → 7 behavioural features → immediate inference. No labelled appliance data ever required |
+| **Cold-start evaluated** | 14-day aggregate calibration window → 7 behavioural features → inference on unseen period. No labelled appliance data required. Performance and limitations documented in results. |
 | **Cross-household learning** | Patterns learned across 16 diverse UK houses generalise: cycle timing, load shape, hot-wash signatures transfer without fine-tuning |
 | **Single global model — all appliances** | The architecture is designed to extend to multi-appliance disaggregation through shared representations and per-appliance SGN heads — one trunk, one deployment, one constraint budget |
 
