@@ -18,20 +18,10 @@
 
 ---
 
-<table width="100%">
-<tr>
-<th align="center" width="25%" bgcolor="#e8f0fb">F1 Score</th>
-<th align="center" width="25%" bgcolor="#e8f0fb">vs Cross-House SOTA</th>
-<th align="center" width="25%" bgcolor="#e8f0fb">Mean Abs. Error</th>
-<th align="center" width="25%" bgcolor="#e8f0fb">Fleet Saving</th>
-</tr>
-<tr>
-<td align="center"><b>0.306</b><br><sub>House 1 · never seen in training</sub></td>
-<td align="center"><b>1.8×</b><br><sub>0.306 vs 0.17 · 1-min vs 15-min</sub></td>
-<td align="center"><b>20 W</b><br><sub>all timesteps · RMSE 119 W</sub></td>
-<td align="center"><b>1,752 kWh/yr</b><br><sub>predicted · 19 households</sub></td>
-</tr>
-</table>
+| F1 Score | vs Cross-House SOTA | Mean Abs. Error | Fleet Saving |
+|:---:|:---:|:---:|:---:|
+| **0.306** | **1.8×** | **20 W** | **1,752 kWh/yr** |
+| House 1 · never seen in training | 0.306 vs 0.17 · 1-min vs 15-min | all timesteps · RMSE 119 W | predicted · 19 households |
 
 One model trained on 16 houses, deployed cold to House 1 — no labels, no retraining. Exceeds the best published cross-house baseline by **80%** at finer resolution (1-min vs 15-min) under a stricter protocol.
 
