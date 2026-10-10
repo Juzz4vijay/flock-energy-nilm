@@ -58,7 +58,20 @@ One model trained on 16 houses, deployed cold to House 1 — no labels, no retra
 
 ---
 
-## Benchmark
+## 🏆 Cross-House SOTA Leaderboard
+
+> **Why cross-house is the only metric that matters for real deployment**
+
+Most published NILM models are trained and tested on the *same* household. That is a closed-loop experiment, not a product. ARNILM is designed around four properties that make it deployable at fleet scale from Day 1:
+
+| Property | What it means |
+|---|---|
+| **Scalability** | One model covers any number of new households — no per-house retraining pipeline, no growing model zoo |
+| **Cold-start solved** | 1–2 weeks of aggregate data → 7 behavioural features → immediate inference. No labelled appliance data ever required |
+| **Cross-household learning** | Patterns learned across 16 diverse UK houses generalise: cycle timing, load shape, hot-wash signatures transfer without fine-tuning |
+| **Single global model — all appliances** | The same LSTM trunk with per-appliance SGN heads can disaggregate washing machine, dryer, dishwasher and fridge simultaneously — one model, one deployment, one constraint budget |
+
+The within-house numbers below (F1=0.42–0.76) are achieved by models that have already seen the test house. Deploy them to a new home and performance collapses. **ARNILM V8 has never seen House 1.**
 
 | Model | F1 | MAE | Split |
 |---|:---:|:---:|---|
@@ -68,7 +81,7 @@ One model trained on 16 houses, deployed cold to House 1 — no labels, no retra
 | BERT4NILM (denoised) | 0.64 | — | within-house |
 | SGN | 0.76 | 14 W | within-house |
 
-Within-house models train on the test household — they know its noise floor, appliance ratings, and schedule. ARNILM V8 has never seen House 1.
+ARNILM V8 leads the **cross-house category by 1.8×** at finer resolution. Within-house results are shown for context — they are a different evaluation class.
 
 ![Model comparison](figures/S3b_2_all_model_comparison.png)
 
