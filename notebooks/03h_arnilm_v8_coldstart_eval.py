@@ -1,10 +1,18 @@
 """
 ARNILM V8 — Cold-start corrected evaluation
 ============================================
-Methodological fix: household signature for H1 is computed from the first 14 days
-of Part 2 data only (calibration window). Inference and metrics run on the remaining
-period. This validates the claimed deployment scenario: 14-day aggregate-only
-cold-start → freeze signature → predict on new data.
+Leakage fix: the original evaluation computed H1's household signature from the
+full H1 Part 2 history, including the period being evaluated. In deployment, only
+14 days of aggregate are available before inference begins.
+
+Fix: compute H1 signature from first COLDSTART_DAYS=14 days only, then evaluate
+on the remaining period.
+
+Note on H1 data quality: H1 Part 1 (Oct 2013-Apr 2014) encodes both outages and
+genuine zeros as 0 — ambiguous labels. We use Part 2 only (Apr 2014+) where NaN
+correctly marks outages. H7 is used as a secondary cold-start demonstration: it
+has clean Part 2 labels, 869 WM cycles, and 98% hot-wash — more informative
+ground truth than H1 for demonstrating signature quality.
 
 Also reports pre-clipping vs post-clipping constraint violations.
 """
@@ -295,6 +303,7 @@ print(f'  {"Energy error":<20} {"69.7%":<22} {energy_err:.1f}%')
 
 results = {
     'model': 'ARNILM_V8_coldstart14d',
+    'test_house': TEST_HOUSE,
     'coldstart_days': COLDSTART_DAYS,
     'eval_timesteps': T,
     'mae': round(mae, 2),
@@ -309,7 +318,89 @@ results = {
     'constraint_viol_max_W_before_clip': round(viol_max, 2),
     'constraint_viol_after_clip': 0.0,
 }
-import json
 out = RES_DIR / 'metrics_ar_lstm_v8_coldstart.json'
 out.write_text(json.dumps(results, indent=2))
-print(f'\nResults saved → {out}')
+print(f'\nH1 results saved → {out}')
+
+# ── Secondary cold-start demo: H7 (clean Part 2 data, 869 cycles) ─────────────
+# H7 is a training house so the model has seen its appliance signatures.
+# We use the LAST 4 weeks (calibration window, held out from training sequences)
+# as the eval period. We compare:
+#   A) full-history H7 signature → inference on last 4 weeks
+#   B) 14-day cold-start H7 signature → same eval window
+# This demonstrates the signature quality penalty independent of H1's data issues.
+
+print('\n' + '='*72)
+print('Secondary demo: H7 cold-start signature vs full-history signature')
+print('(H7 has clean Part 2 labels, 869 cycles, 98% hot-wash)')
+print('='*72)
+
+H7 = 7
+h7_sub = wm_part2[wm_part2['house'] == H7]
+
+# Calibration / eval window: last 4 weeks (same as CAL_WEEKS logic in training)
+CAL_WEEKS = 4
+cal_len = min(CAL_WEEKS * 7 * 24 * 60, len(h7_sub) // 4)
+h7_eval = h7_sub.iloc[-cal_len:]
+
+# Signature A: full history (training used this)
+sig_h7_full = house_sigs[H7]
+
+# Signature B: 14-day cold-start (simulates deployment on a new house)
+h7_cal_end = h7_sub.index[0] + pd.Timedelta(days=COLDSTART_DAYS)
+h7_cal_sub = h7_sub[h7_sub.index < h7_cal_end]
+sig_h7_cold = house_sig_from_agg(h7_cal_sub['Aggregate'])
+
+print(f'  H7 eval window:      last {cal_len:,} timesteps ({cal_len/60/24:.0f} days)')
+print(f'  Full-history sig:    dur={sig_h7_full["sig_med_dur"]*180:.0f}min  high_e={sig_h7_full["sig_agg_high_energy_frac"]:.0%}  peak={sig_h7_full["sig_med_peak"]*3000:.0f}W')
+print(f'  14-day cold-start:   dur={sig_h7_cold["sig_med_dur"]*180:.0f}min  high_e={sig_h7_cold["sig_agg_high_energy_frac"]:.0%}  peak={sig_h7_cold["sig_med_peak"]*3000:.0f}W')
+
+agg_h7 = h7_eval['Aggregate'].values.astype(np.float32)
+wm_h7  = h7_eval['WM'].values.astype(np.float32)
+dyn_h7 = build_dyn_covariates(h7_eval)
+
+def run_inference(agg, dyn, sig_dict, chunk=10000):
+    sig_vec = np.array([sig_dict[c] for c in SIG_COLS], dtype=np.float32)
+    T_ = len(agg)
+    preds = np.zeros(T_, np.float32); p_ons_ = np.zeros(T_, np.float32)
+    hidden = None
+    with torch.no_grad():
+        for s in range(0, T_, chunk):
+            e = min(s + chunk, T_)
+            ac = torch.FloatTensor(agg[s:e]).unsqueeze(0).to(DEVICE)
+            dc = torch.FloatTensor(dyn[s:e]).unsqueeze(0).to(DEVICE)
+            sc = torch.FloatTensor(sig_vec).unsqueeze(0).to(DEVICE)
+            yh, po, _, hidden = model(ac, dc, sc, hidden)
+            preds[s:e] = yh[0].cpu().numpy()
+            p_ons_[s:e] = po[0].cpu().numpy()
+            hidden = tuple(hh.detach() for hh in hidden)
+    return np.clip(preds, 0, agg), p_ons_
+
+def score(preds, p_ons_, wm_gt, agg_gt, threshold):
+    true_on = (wm_gt >= ON_THRESH_W).astype(int)
+    pred_on = (p_ons_ >= threshold).astype(int)
+    mae_  = float(np.mean(np.abs(preds - wm_gt)))
+    f1_   = float(f1_score(true_on, pred_on, zero_division=0))
+    on_m  = true_on == 1
+    mae_on_ = float(np.mean(np.abs(preds[on_m] - wm_gt[on_m]))) if on_m.sum() > 0 else float('nan')
+    true_kwh_ = float(wm_gt.sum() / 60000)
+    pred_kwh_ = float(preds.sum() / 60000)
+    ee_ = abs(pred_kwh_ - true_kwh_) / max(true_kwh_, 1e-6) * 100
+    return dict(mae=round(mae_,2), f1=round(f1_,3), mae_on=round(mae_on_,1), energy_err=round(ee_,1))
+
+preds_full, pons_full = run_inference(agg_h7, dyn_h7, sig_h7_full)
+preds_cold, pons_cold = run_inference(agg_h7, dyn_h7, sig_h7_cold)
+
+sc_full = score(preds_full, pons_full, wm_h7, agg_h7, P_ON_THRESHOLD)
+sc_cold = score(preds_cold, pons_cold, wm_h7, agg_h7, P_ON_THRESHOLD)
+
+print(f'\n  {"Metric":<18} {"Full-history sig":<22} {"14-day cold-start sig"}')
+print(f'  {"-"*58}')
+for k in ['mae', 'f1', 'mae_on', 'energy_err']:
+    print(f'  {k:<18} {str(sc_full[k]):<22} {sc_cold[k]}')
+
+h7_results = {'full_sig': sc_full, 'coldstart_sig': sc_cold,
+              'h7_14d_sig': {k: round(v,4) if isinstance(v,float) else v
+                             for k,v in sig_h7_cold.items()}}
+(RES_DIR / 'metrics_ar_lstm_v8_coldstart_h7demo.json').write_text(json.dumps(h7_results, indent=2))
+print(f'\nH7 demo results saved → {RES_DIR}/metrics_ar_lstm_v8_coldstart_h7demo.json')
