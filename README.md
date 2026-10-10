@@ -236,6 +236,22 @@ V13: BERT4NILM same LOHO split → true apples-to-apples  academic comparison
 
 ---
 
+## AI Tools
+
+This project used AI-assisted tools for code generation support and iterative
+debugging:
+
+- **Claude (Anthropic)** — used for iterative code review, debugging LSTM training
+  loops, and drafting report sections. All model design decisions, experimental
+  choices, data interpretation, and numerical results are the author's own work.
+  AI assistance was used to accelerate implementation, not to make analytical
+  judgements.
+
+All code was reviewed, run, and validated by the author. Results were verified
+against ground-truth sub-meter data and published benchmarks independently.
+
+---
+
 ## Repository Structure
 
 ```

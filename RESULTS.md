@@ -13,7 +13,7 @@ Cycles were detected from the WM sub-meter channel using a hysteresis state mach
 
 | House | Cycles | Median duration | Median energy | Hot wash % |
 |---|---|---|---|---|
-| H1 | 415 | 33 min | 304 Wh | 91% |
+| H1 | 397 | 33 min | 304 Wh | 91% |
 | H2 | 342 | 91 min | 603 Wh | 94% |
 | H4 | 62 | 50 min | 884 Wh | 94% |
 | H5 | 730 | 40 min | 275 Wh | 74% |
@@ -184,6 +184,60 @@ Within-house benchmarks (F1=0.42–0.76) use a more favourable split where the m
 | `figures/S3b_0_ar_lstm_training.png` | ARNILM 40-epoch convergence curve |
 | `figures/S3b_1_ar_lstm_day.png` | ARNILM prediction with uncertainty ribbon |
 | `figures/S3b_2_all_model_comparison.png` | All four models compared |
+
+---
+
+## Label Quality and Data Assumptions
+
+### Missing labels
+
+REFIT WM sub-meters are plug-in IAMs, not hardwired. Extended periods of zero
+readings on the WM channel may represent genuine off-state *or* sensor dropout —
+the two cases are indistinguishable without cross-referencing the aggregate. In
+Part 1 (Oct 2013–Apr 2014), `0` encodes both missing and genuine zero, so Part 1
+data is excluded from all model training. In Part 2, `NaN` clearly marks missing
+readings, but a sensor that drifts to zero rather than going `NaN` would produce
+false-negative WM labels (the WM ran, the sub-meter shows zero). These timesteps
+are silently included as OFF-class training examples, potentially teaching the model
+that certain aggregate signatures correspond to WM-off. The flatline-suspect flag
+(`flatline_suspect = 1`) marks the most likely affected windows; these windows
+contribute ~12% of Part 2 timesteps and are down-weighted in the loss.
+
+### Appliance changes
+
+REFIT spans October 2013 – June 2015 (20 months). Households may have replaced
+their washing machine during this period. A new machine with a different wattage
+profile or cycle structure would produce a step-change in the WM sub-meter that the
+model has no explicit mechanism to handle. This is visible in a few households as
+a sudden shift in median cycle energy mid-study. No appliance-change annotations
+exist in the REFIT metadata. The model is robust to cross-house hardware variation
+(trained on 16 different machines) but would be confused by an intra-house change
+it cannot observe from the aggregate alone.
+
+### Unmetered loads
+
+The REFIT aggregate measures whole-house consumption from the main supply clamp.
+The 9 IAMs cover only 9 plug-in appliances. In practice, the unmonitored fraction
+is ~79% of aggregate on average (lights, sockets, EV chargers if present, hardwired
+appliances). The WM sub-meter label is clean and accurate for the WM channel itself,
+but the aggregate input that the model reads contains a large unobserved component.
+Washing machine cycles must be disaggregated from this 79% background noise. This
+is the fundamental difficulty of NILM: not the WM signature in isolation but the WM
+signature buried in aggregate consumption from unrelated devices running simultaneously.
+The SGN gate's shape features (rolling standard deviation) are specifically designed
+to detect the WM's distinctive ramp-and-hold cycle shape against this noisy background.
+
+### Why our cleaned data rather than the official REFIT clean release
+
+The official cleaned REFIT dataset (Murray et al., 2015) forward-fills all missing
+values, producing long flatline runs that are artifacts, not real consumption. It also
+does not enforce the physical constraint WM ≤ aggregate — 11,124 violations exist in
+the official clean data across the training houses. Training on data where the
+sub-meter exceeds the aggregate teaches the model that physically impossible patterns
+are legitimate. Our pipeline corrects all 11,124 violations in Stage B2 and flags
+flatline windows rather than silently including them as training signal. This is a
+deliberate improvement over the official release; results are not directly comparable
+to models trained on the official clean data.
 
 ---
 
