@@ -12,7 +12,7 @@
 ![SOTA](https://img.shields.io/badge/vs%20Baseline-1.8%C3%97%20cross--house-16794a?style=flat-square)
 ![Status](https://img.shields.io/badge/Status-V8%20Complete%20%7C%20V9%20Roadmap-c26b0a?style=flat-square)
 
-[Full Report](results/full_report.md) · [Data Notes](DATA.md) · [Results](RESULTS.md) · [Live Dashboard →](https://claude.ai/artifact/4s22nwPdmAUsoPoFsqBnSp)
+[Full Report](results/full_report.md) · [Data Notes](DATA.md) · [Results](RESULTS.md)
 
 </div>
 
@@ -52,9 +52,9 @@ One model trained on 16 houses, deployed cold to House 1 — no labels, no retra
 
 > **DEMO** — ARNILM V8 predictions · 19-household REFIT dataset · Profile labels are model-predicted, not ground truth
 
-[![Fleet Dashboard](figures/dashboard_fleet_overview.png)](https://claude.ai/artifact/4s22nwPdmAUsoPoFsqBnSp)
+![Fleet Dashboard](figures/dashboard_fleet_overview.png)
 
-[![Household Detail](figures/dashboard_household_detail.png)](https://claude.ai/artifact/4s22nwPdmAUsoPoFsqBnSp)
+![Household Detail](figures/dashboard_household_detail.png)
 
 ---
 
