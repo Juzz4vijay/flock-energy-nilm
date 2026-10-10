@@ -1,0 +1,17 @@
+{
+  "model": "ARNILM_V8_coldstart14d",
+  "test_house": 1,
+  "coldstart_days": 14,
+  "eval_timesteps": 650157,
+  "mae": 19.82,
+  "rmse": 121.33,
+  "mae_on": 407.86,
+  "f1": 0.3368,
+  "precision": 0.2445,
+  "recall": 0.5409,
+  "energy_err_pct": 63.1,
+  "constraint_viol_rate_pct_before_clip": 7.8203,
+  "constraint_viol_mean_W_before_clip": 0.0218,
+  "constraint_viol_max_W_before_clip": 468.02,
+  "constraint_viol_after_clip": 0.0
+}

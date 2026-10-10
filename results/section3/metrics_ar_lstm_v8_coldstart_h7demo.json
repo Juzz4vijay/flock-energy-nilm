@@ -1,0 +1,23 @@
+{
+  "full_sig": {
+    "mae": 22.99,
+    "f1": 0.698,
+    "mae_on": 183.1,
+    "energy_err": 18.0
+  },
+  "coldstart_sig": {
+    "mae": 23.87,
+    "f1": 0.637,
+    "mae_on": 199.5,
+    "energy_err": 9.9
+  },
+  "h7_14d_sig": {
+    "sig_med_dur": 0.0,
+    "sig_med_energy": 0.0,
+    "sig_agg_high_energy_frac": 0.0,
+    "sig_ph_sin": 0.0,
+    "sig_ph_cos": 0.0,
+    "sig_med_peak": 0.0,
+    "sig_agg_high_energy_frac2": 0.0
+  }
+}
