@@ -174,7 +174,7 @@ print(f'  Part2: {len(wm_part2):,} rows  |  {wm_part2["house"].nunique()} houses
 
 print('\nLoading V8 checkpoint ...')
 model = ARNILM().to(DEVICE)
-model.load_state_dict(torch.load(CKPT_DIR / 'nilm_ar_lstm.pt', map_location=DEVICE))
+model.load_state_dict(torch.load(CKPT_DIR / 'nilm_ar_lstm_v8.pt', map_location=DEVICE))
 model.eval()
 print('  Checkpoint loaded.')
 

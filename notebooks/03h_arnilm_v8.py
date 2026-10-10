@@ -118,12 +118,19 @@ def house_sig_from_agg(agg_series):
         sig_agg_high_energy_frac2  = high_e_frac ** 2,
     )
 
+# Cold-start consistent: use only first COLDSTART_DAYS days of Part 2 for every
+# house signature — training and test use the same quality of signature so the
+# model learns to work with 14-day cold-start inputs, not full-history oracles.
+COLDSTART_DAYS = 14
+
 house_sigs = {}
 for h in sorted(wm_part2['house'].unique()):
     sub = wm_part2[wm_part2['house'] == h]
-    house_sigs[h] = house_sig_from_agg(sub['Aggregate'])
+    cal_end = sub.index[0] + pd.Timedelta(days=COLDSTART_DAYS)
+    cal_sub  = sub[sub.index < cal_end]
+    house_sigs[h] = house_sig_from_agg(cal_sub['Aggregate'])
     s = house_sigs[h]
-    print(f'  H{h:2d}  dur={s["sig_med_dur"]*180:.0f}min  high_e={s["sig_agg_high_energy_frac"]:.0%}  peak={s["sig_med_peak"]*MAX_WM_W:.0f}W')
+    print(f'  H{h:2d}  dur={s["sig_med_dur"]*180:.0f}min  high_e={s["sig_agg_high_energy_frac"]:.0%}  peak={s["sig_med_peak"]*MAX_WM_W:.0f}W  [cal={len(cal_sub):,} rows]')
 
 # ── Dynamic covariates (V7: +4 derivative/shape features) ─────────────────────
 # V6 had 9 dyn features: [ev_active, ev_dur, ev_energy, ev_peak, since_ev,
