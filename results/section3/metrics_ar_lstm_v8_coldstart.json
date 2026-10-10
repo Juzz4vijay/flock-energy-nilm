@@ -22,8 +22,8 @@
     "recall": 0.5415,
     "energy_err_pct": 63.2
   },
-  "constraint_viol_rate_pct_before_clip": 7.8203,
-  "constraint_viol_mean_all_ts_W": 0.0201,
+  "constraint_viol_rate_pct_before_clip": 7.8201,
+  "constraint_viol_mean_all_ts_W": 0.02,
   "constraint_viol_mean_violating_W": 0.26,
   "constraint_viol_max_W_before_clip": 416.16,
   "constraint_viol_after_clip": 0.0
